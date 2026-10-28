@@ -34,12 +34,21 @@ const SENSITIVE = [
   { re: /(^|\/)(public|static|www|dist|build|web)\/.*\.map$/i, sev: 'low', what: 'un mapa de código fuente público', why: 'deja ver el código original del frontend a cualquiera' },
 ];
 
-export function sensitiveFiles(files) {
+/** Un .sql es una copia de datos solo si trae datos: muchas filas INSERT o un COPY; una migración que crea tablas no lo es. */
+function looksLikeDump(root, file) {
+  if (!root || !/\.sql$/i.test(file)) return true;
+  if (/(dump|backup|copia|export)/i.test(file)) return true;
+  let text = ''; try { text = fs.readFileSync(path.join(root, file), 'utf8').slice(0, 5_000_000); } catch { return true; }
+  return (text.match(/^\s*INSERT\s+INTO/gim) || []).length >= 20 || /^\s*COPY\s+\S+.*FROM\s+stdin/im.test(text);
+}
+
+export function sensitiveFiles(files, root) {
   const out = [];
   for (const file of files) {
     const hit = SENSITIVE.find((s) => s.re.test(file));
     if (!hit) continue;
     if (/(^|\/)(tests?|fixtures?|examples?|samples?|docs?)\//i.test(file) && hit.sev !== 'high') continue;
+    if (hit.what === 'una copia de base de datos' && !looksLikeDump(root, file)) continue;
     out.push({
       tool: 'lupa', cat: 'datos', rule: 'fichero-delicado', severity: hit.sev, file, line: 1,
       title: `Está subido al repo ${hit.what}: ${path.posix.basename(file)}`,

@@ -78,16 +78,22 @@ export function runSemgrep(tool, root, { rulesFile, packs = SEMGREP_PACKS, log =
   for (const x of data.results || []) {
     const m = x.extra?.metadata || {};
     // las reglas propias llegan con la ruta del fichero delante («lupa.skills.lupa.rules.lupa.exposicion.…»)
-    const mine = /(lupa\.(?:jenkins|ci|docker|exposicion|secretos)\.[\w-]+)$/.exec(String(x.check_id));
+    const mine = /(lupa\.(?:jenkins|ci|docker|exposicion|secretos|ia|web)\.[\w-]+)$/.exec(String(x.check_id));
     const own = !!mine && !!m['lupa-cat'];
     const checkId = own ? mine[1] : String(x.check_id);
     if (!own && m.category && m.category !== 'security') continue; // solo seguridad, nada de estilo
     const file = relTo(root, x.path);
     const rule = checkId.split('.').pop();
-    const cat = own ? m['lupa-cat'] : 'codigo';
+    // las reglas de CI (GitHub Actions, GitLab…) son cadena de suministro del despliegue, no fallos del código
+    const cat = own ? m['lupa-cat'] : /^yaml\.(github-actions|gitlab)|\.ci\.|dockerfile\./i.test(checkId) ? 'infra' : 'codigo';
+    let severity = softenInTests(normSeverity(m['lupa-severity'] || x.extra?.severity), file);
+    // una cadena de conexión a localhost o a un contenedor local suele ser de desarrollo: se avisa, pero menor.
+    // La línea se mira aquí y no se guarda, porque lleva la contraseña.
+    const local = checkId === 'lupa.secretos.cadena-de-conexion' && /@(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|db|database|postgres|mysql|mariadb|redis|mongo|mongodb|rabbitmq)(?::\d+)?(?:[/?'"`\s]|$)/i.test(x.extra?.lines || '');
+    if (local) severity = 'low';
     out.push({
       tool: 'semgrep', cat, rule: checkId,
-      severity: softenInTests(normSeverity(m['lupa-severity'] || x.extra?.severity), file),
+      severity, ...(local ? { localOnly: true } : {}),
       file, line: x.start?.line || 1,
       cwe: [].concat(m.cwe || []).map((c) => String(c).split(':')[0]).join(', '),
       owasp: [].concat(m.owasp || []).join(', '),
@@ -100,31 +106,53 @@ export function runSemgrep(tool, root, { rulesFile, packs = SEMGREP_PACKS, log =
 }
 
 // ---------------------------------------------------------------- Trivy
-/** Librerías con fallos conocidos (CVE) y servidores mal configurados (Terraform, Docker, Kubernetes…). */
-export function runTrivy(tool, root, log = () => {}) {
+function trivyJson(tool, dir, scanners, log) {
   const report = tmpFile('trivy.json');
-  const args = ['fs', '--scanners', 'vuln,misconfig', '--format', 'json', '--output', report, '--quiet', '--exit-code', '0', '--include-dev-deps'];
+  const args = ['fs', '--scanners', scanners, '--list-all-pkgs', '--format', 'json', '--output', report, '--quiet', '--exit-code', '0', '--include-dev-deps'];
   for (const d of SKIP_DIRS.filter((d) => d !== 'vendor')) args.push('--skip-dirs', `**/${d}`);
-  args.push(root);
-  let r = run(tool.path, args, { cwd: root });
+  args.push(dir);
+  let r = run(tool.path, args, { cwd: dir });
   // Maven Central corta a quien pregunta mucho seguido (HTTP 429). Sin red se pierden algunas
   // dependencias transitivas de Java, pero se escanea todo lo demás en vez de nada.
   if (/429|Too Many Requests/i.test(r.stderr) && !readJSON(report)) {
     log('Maven Central ha frenado a Trivy (429): repito sin consultar internet; en Java pueden faltar dependencias transitivas');
-    r = run(tool.path, [...args.slice(0, -1), '--offline-scan', root], { cwd: root });
+    r = run(tool.path, [...args.slice(0, -1), '--offline-scan', dir], { cwd: dir });
   }
   const data = readJSON(report);
-  if (!data) { log(`Trivy no dio resultados: ${(r.stderr || r.error?.message || '').slice(-400)}`); return []; }
-  const out = [];
+  if (!data) log(`Trivy no dio resultados: ${(r.stderr || r.error?.message || '').slice(-400)}`);
+  return data;
+}
+
+/**
+ * Para un package.json sin fichero de bloqueo, resuelve hoy las versiones en una carpeta aparte
+ * (npm --package-lock-only --ignore-scripts: solo descarga metadatos, no instala ni ejecuta nada
+ * del proyecto). Así se pueden buscar sus CVE aunque el repo no fije versiones.
+ */
+function npmLock(root, pkgJson, log) {
+  const dir = fs.mkdtempSync(path.join(tmpDir(), 'lupa-npm-'));
+  fs.copyFileSync(path.join(root, pkgJson), path.join(dir, 'package.json'));
+  const cli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const [cmd, pre] = fs.existsSync(cli) ? [process.execPath, [cli]] : ['npm', []];
+  const r = run(cmd, [...pre, 'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps', '--loglevel', 'error'], { cwd: dir, timeout: 10 * 60_000 });
+  if (!fs.existsSync(path.join(dir, 'package-lock.json'))) { log(`no pude resolver las versiones de ${pkgJson}: ${(r.stderr || r.error?.message || '').split('\n')[0].slice(0, 200)}`); return null; }
+  return dir;
+}
+
+function collect(data, mapFile, out, packages, note = '') {
   for (const res of data.Results || []) {
-    const file = relTo(root, path.join(root, res.Target || ''));
+    const file = mapFile(res.Target || '');
+    for (const p of res.Packages || []) packages.push({
+      target: file, type: res.Type, name: p.Name, version: p.Version, purl: p.Identifier?.PURL || '', direct: p.Relationship === 'direct',
+      // la línea donde se declara (si el repo la fija, no la del fichero resuelto hoy), si es de desarrollo y si se resolvió aparte
+      line: note ? 1 : p.Locations?.[0]?.StartLine || 1, dev: !!p.Dev, resolved: !!note,
+    });
     // dependencias: un hallazgo por librería, con todos sus CVE dentro
     const byPkg = new Map();
     for (const v of res.Vulnerabilities || []) {
       const k = `${v.PkgName}@${v.InstalledVersion}`;
-      if (!byPkg.has(k)) byPkg.set(k, { pkg: v.PkgName, version: v.InstalledVersion, fixed: new Set(), cves: [] });
+      if (!byPkg.has(k)) byPkg.set(k, { pkg: v.PkgName, version: v.InstalledVersion, purl: v.PkgIdentifier?.PURL || '', fixed: new Set(), cves: [] });
       const e = byPkg.get(k);
-      e.cves.push({ id: v.VulnerabilityID, sev: normSeverity(v.Severity), title: v.Title || '' });
+      e.cves.push({ id: v.VulnerabilityID, sev: normSeverity(v.Severity), title: v.Title || '', fixed: v.FixedVersion || '' });
       if (v.FixedVersion) e.fixed.add(v.FixedVersion);
     }
     for (const e of byPkg.values()) {
@@ -132,9 +160,9 @@ export function runTrivy(tool, root, log = () => {}) {
       const fixed = [...e.fixed].join(', ');
       out.push({
         tool: 'trivy', cat: 'dependencias', rule: e.cves.map((c) => c.id).slice(0, 5).join(', '),
-        severity: sev, file, line: 1, pkg: e.pkg, version: e.version, cves: e.cves,
+        severity: sev, file, line: 1, pkg: e.pkg, version: e.version, purl: e.purl, cves: e.cves, resolvedToday: !!note,
         title: `La librería ${e.pkg} ${e.version} tiene ${e.cves.length === 1 ? 'un fallo conocido' : `${e.cves.length} fallos conocidos`}`,
-        detail: `${e.cves.slice(0, 4).map((c) => `${c.id}${c.title ? `: ${c.title}` : ''}`).join(' · ')}${e.cves.length > 4 ? ` · y ${e.cves.length - 4} más` : ''}. ${fixed ? `Se arregla subiendo a ${fixed}.` : 'Todavía no hay versión arreglada.'}`,
+        detail: `${e.cves.slice(0, 4).map((c) => `${c.id}${c.title ? `: ${c.title}` : ''}`).join(' · ')}${e.cves.length > 4 ? ` · y ${e.cves.length - 4} más` : ''}. ${fixed ? `Se arregla subiendo a ${fixed}.` : 'Todavía no hay versión arreglada.'}${note ? ` ${note}` : ''}`,
         fix: `Arreglo de seguridad: ${e.pkg} ${e.version} (declarada en ${file}) tiene ${e.cves.map((c) => c.id).join(', ')}. ${fixed ? `Súbela a ${fixed}` : 'No hay versión arreglada: busca una alternativa o mitígalo'}, actualiza el fichero de bloqueo, pasa las pruebas y dime si el cambio rompe algo.`,
       });
     }
@@ -150,5 +178,24 @@ export function runTrivy(tool, root, log = () => {}) {
       });
     }
   }
-  return out;
+}
+
+/**
+ * Librerías con fallos conocidos (CVE), servidores mal configurados (Terraform, Docker, Kubernetes…)
+ * y la lista completa de paquetes para la foto de la tecnología.
+ * @param unlocked manifiestos sin fichero de bloqueo: los package.json se resuelven aparte.
+ * @returns { findings, packages }
+ */
+export function runTrivy(tool, root, log = () => {}, { unlocked = [] } = {}) {
+  const findings = [], packages = [];
+  const data = trivyJson(tool, root, 'vuln,misconfig', log);
+  if (data) collect(data, (t) => relTo(root, path.join(root, t)), findings, packages);
+  for (const pj of unlocked.filter((f) => path.posix.basename(f) === 'package.json')) {
+    const dir = npmLock(root, pj, log);
+    if (!dir) continue;
+    const d2 = trivyJson(tool, dir, 'vuln', log);
+    if (d2) collect(d2, () => pj, findings, packages, '(Versiones resueltas hoy: el repo no tiene fichero de bloqueo, así que lo desplegado puede ser otra cosa.)');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  return { findings, packages };
 }

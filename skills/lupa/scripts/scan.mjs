@@ -8,12 +8,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readJSON, writeJSON, run, globToRegExp } from './lib/util.mjs';
+import { readJSON, writeJSON, run, globToRegExp, snippet } from './lib/util.mjs';
 import { findAll, installHint } from './lib/tools.mjs';
 import { runGitleaks, runSemgrep, runTrivy } from './lib/scanners.mjs';
 import { trackedFiles, sensitiveFiles, personalData, unlockedDependencies, extraEndpoints, SENSITIVE_PATH } from './lib/own-checks.mjs';
 import { findingId } from './lib/issues.mjs';
 import { writeWorksheets } from './lib/review.mjs';
+import { loadEol, loadKev, loadEpss } from './lib/intel.mjs';
+import { inventory, techFindings } from './lib/tech.mjs';
+import { dataMap, dataFindings, aiFiles } from './lib/datamap.mjs';
+import crypto from 'node:crypto';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FLOORPLAN = path.join(HERE, '..', '..', 'floorplan', 'scripts');
@@ -54,10 +58,15 @@ const step = (name, fn) => {
 };
 
 const files = trackedFiles(root, repos.length ? repos : [{ path: '.' }]);
+const unlocked = unlockedDependencies(files);
+let packages = null;
 step('gitleaks', () => (tools.gitleaks ? runGitleaks(tools.gitleaks, root, repos, log) : []));
 step('semgrep', () => (tools.semgrep ? runSemgrep(tools.semgrep, root, { rulesFile: RULES, packs: argv.includes('--sin-paquetes') ? [] : undefined, log }) : []));
-step('trivy', () => (tools.trivy ? runTrivy(tools.trivy, root, log) : []));
-step('propios', () => [...sensitiveFiles(files), ...personalData(root, files), ...unlockedDependencies(files)]);
+step('trivy', () => { if (!tools.trivy) return []; const r = runTrivy(tools.trivy, root, log, { unlocked: unlocked.map((f) => f.file) }); packages = r.packages; return r.findings; });
+step('propios', () => [...sensitiveFiles(files, root), ...personalData(root, files), ...unlocked]);
+// la lista de paquetes se guarda: con --solo sin Trivy se reutiliza la de la pasada anterior
+if (packages) writeJSON(path.join(outDir, 'paquetes.json'), packages);
+else packages = readJSON(path.join(outDir, 'paquetes.json'), []);
 
 // lo que el mapa ignora a propósito (código generado, soluciones de ejemplo, librerías copiadas) tampoco cuenta aquí
 const arch = readJSON(path.join(root, 'floorplan', 'architecture.json'), {});
@@ -78,6 +87,55 @@ if (prevRun && only.length < Object.keys(TOOL_OF).length) {
   Object.assign(versions, Object.fromEntries(Object.entries(prevRun.herramientas || {}).filter(([n]) => !versions[n])));
   if (kept.length) console.log(`  (se conservan ${kept.length} hallazgos de la pasada anterior)`);
 }
+
+// ---------------------------------------------------------------- KEV, EPSS y tecnología
+// cada CVE se cruza con el catálogo de la CISA (explotado ahora mismo) y con EPSS (probabilidad de ataque)
+const s1 = Date.now();
+const [eol, kev] = await Promise.all([loadEol(log), loadKev(log)]);
+const epss = await loadEpss(findings.flatMap((f) => (f.cves || []).map((c) => c.id)), log);
+let kevCount = 0;
+for (const f of findings) {
+  if (!f.cves || f.enriched) continue;
+  f.enriched = true;
+  for (const c of f.cves) { const k = kev?.get(c.id); if (k) c.kev = k; const e = epss.get(c.id); if (e) c.epss = e.percentil; }
+  f.epssMax = Math.max(0, ...f.cves.map((c) => c.epss || 0));
+  const kevs = f.cves.filter((c) => c.kev);
+  if (!kevs.length) continue;
+  kevCount++;
+  f.kev = kevs.map((c) => c.id);
+  f.severity = 'high';
+  f.title = `Explotada ahora mismo (KEV): ${f.title}`;
+  f.detail = `${f.kev.join(', ')} ${kevs.length > 1 ? 'están' : 'está'} en el catálogo KEV de la CISA: se ${kevs.length > 1 ? 'están' : 'está'} usando en ataques reales${kevs.some((c) => c.kev.ransomware) ? ', también en campañas de ransomware' : ''}. Es lo primero que hay que parchear. ${f.detail}`;
+}
+// la tecnología se recalcula siempre, también con --solo
+findings = findings.filter((f) => f.cat !== 'tecnologia');
+const inv = inventory({ root, files, scan, packages, eol });
+const techF = techFindings(inv);
+findings.push(...techF);
+// CVE por componente, para la foto
+const cvesOf = new Map();
+for (const f of findings) if (f.cat === 'dependencias' && f.cves) cvesOf.set(`${f.pkg}@${f.version}`, { total: f.cves.length, graves: f.cves.filter((c) => c.sev === 'high').length, kev: (f.kev || []).length });
+for (const c of inv.componentes) c.cves = cvesOf.get(`${c.nombre}@${c.version}`) || null;
+// mapa de datos personales (dónde se guardan pasaportes, DNI, salud…) y ficheros que llaman a una IA
+const dmap = dataMap(root, files);
+const DATA_RULES = new Set(['guarda-cvv', 'tarjeta-sin-cifrar', 'datos-sensibles-sin-cifrar']);
+findings = findings.filter((f) => !DATA_RULES.has(f.rule));
+findings.push(...dataFindings(dmap));
+const iaFiles = aiFiles(root, files);
+inv.ficherosIA = iaFiles;
+writeJSON(path.join(outDir, 'tecnologia.json'), { generadoEn: new Date().toISOString(), ...inv });
+writeJSON(path.join(outDir, 'datos.json'), { generadoEn: new Date().toISOString(), ...dmap });
+console.log(`  datos     ${String(dmap.ficheros.length).padStart(5)} modelos/tablas con datos personales (${Object.keys(dmap.resumen).join(', ') || 'ninguno'}) · ${iaFiles.length} ficheros llaman a una IA`);
+console.log(`  tecnología ${String(inv.componentes.length).padStart(4)} piezas · ${techF.filter((f) => f.rule === 'sin-soporte').length} sin soporte · ${kevCount} librerías con CVE explotadas (KEV)  (${Math.round((Date.now() - s1) / 1000)} s)`);
+
+// «respuesta del modelo pintada sin limpiar» solo tiene sentido en un repo que usa IA
+const repoOf = (file) => (repos.length ? repos : [{ path: '.' }]).filter((r) => r.path === '.' || file.startsWith(r.path + '/')).sort((a, b) => b.path.length - a.path.length)[0]?.path || '.';
+const aiRepos = new Set([...iaFiles, ...(inv.ia || []).map((a) => a.fichero)].map(repoOf));
+const beforeIa = findings.length;
+findings = findings.filter((f) => f.rule !== 'lupa.ia.respuesta-sin-limpiar' || aiRepos.has(repoOf(f.file)));
+if (beforeIa > findings.length) console.log(`  (${beforeIa - findings.length} avisos de IA en repos que no usan IA, fuera)`);
+// lo que el mapa ignora tampoco cuenta para la tecnología ni los datos, que se calculan después
+if (ignored.length) findings = findings.filter((f) => !ignored.some((re) => re.test(f.file)));
 
 // el mismo aviso visto dos veces (dos reglas, o la misma con varias coincidencias) cuenta una vez
 const seen = new Set();
@@ -115,6 +173,12 @@ function commonRoute(paths) {
   }
   return tail.length ? '/' + tail.join('/') : paths[0];
 }
+const iaSet = new Set(iaFiles);
+// la ruta lleva un identificador («/solicitudes/:id», «{id}», «<int:pk>»…): candidata a ver datos de otro
+const ID_IN_PATH = /\/:\w+|\{\w+\}|<(?:\w+:)?\w+>|\[\w+\]/;
+// el manejador menciona campos de datos personales del mapa de datos
+const piiNames = [...new Set(dmap.ficheros.flatMap((d) => d.campos.map((c) => c.campo)).filter((n) => n.length >= 5 && /^\w+$/.test(n)))];
+const piiRe = piiNames.length ? new RegExp('\\b(?:' + piiNames.join('|') + ')\\b') : null;
 const endpoints = [
   ...[...byHandler.values()].map((e) => {
     const paths = [...new Set(e.paths)].sort((a, b) => a.length - b.length);
@@ -122,6 +186,13 @@ const endpoints = [
   }),
   ...extraEndpoints(root, files, routeFiles).map((e) => ({ ref: 'f:' + e.file, method: e.method, path: e.path, file: e.file, line: e.line, framework: e.framework, authHint: e.authHint })),
 ].map((e) => ({ ...e, sensitive: SENSITIVE_PATH.test([e.path, ...(e.otherPaths || [])].join(' ')) }))
+  .map((e) => {
+    const text = (() => { try { return fs.readFileSync(path.join(root, e.file), 'utf8'); } catch { return ''; } })();
+    // usa IA si el fichero, o uno que importa directamente, llama a un modelo
+    const usaIA = iaSet.has(e.file) || (graph.links || []).some((l) => l.a === 'f:' + e.file && l.k === 'import' && iaSet.has(String(l.b).slice(2)));
+    return { ...e, usaIA, parametroId: ID_IN_PATH.test(e.path), datosPersonales: !!piiRe && piiRe.test(text),
+      huella: crypto.createHash('sha1').update(snippet(path.join(root, e.file), e.line, 3, 30)).digest('hex').slice(0, 12) };
+  })
   // lo más arriesgado primero: así, si la revisión se corta, lo gordo ya está mirado
   .sort((a, b) => (+!!b.floorplanOpen - +!!a.floorplanOpen) || (+b.sensitive - +a.sensitive) || (+WRITE.has(b.method) - +WRITE.has(a.method)));
 

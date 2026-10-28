@@ -12,6 +12,8 @@ export const CATS = {
   codigo: 'Fallos de código',
   infra: 'Servidores y despliegue',
   dependencias: 'Librerías con fallos',
+  tecnologia: 'Tecnología obsoleta',
+  ia: 'Inteligencia artificial',
 };
 
 export const findingId = (f) => crypto.createHash('sha1').update(`${f.tool}|${f.rule}|${f.file}|${f.line}|${f.pkg || ''}`).digest('hex').slice(0, 10);
@@ -48,7 +50,8 @@ const lineNote = (f) => `línea ${f.line}: ${f.title}`;
 export function toIssues(findings, mapper) {
   const groups = new Map();
   for (const f of findings) {
-    const key = `${f.cat}|${f.ref || f.file}`;
+    // la tecnología va una pieza por aviso: en un docker-compose, nginx y mongo son dos problemas distintos
+    const key = `${f.cat}|${f.ref || f.file}${f.cat === 'tecnologia' && f.componente ? '|' + f.componente : ''}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(f);
   }
@@ -82,6 +85,21 @@ export function toIssues(findings, mapper) {
   return issues.sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
 }
 
+/**
+ * Un titular que diga el problema: la primera frase que habla de lo que falla («pero no comprueba…»,
+ * «falta…», «cualquiera puede…»), sin el conector delante; si no hay, la primera. Recortado.
+ */
+function firstSentence(s) {
+  const all = String(s || '').trim().split(/(?<=[.!?])\s+/);
+  const BAD = /\b(pero|falta|faltan|no hay|no tiene|no comprueba|no limita|no valida|no pide|sin\s|se puede|se salta|cualquiera|permite|expone|deja|delata|filtra|suelta)\b/i;
+  let t = (all.find((x) => BAD.test(x)) || all[0] || '').replace(/[.:;]$/, '');
+  // «Lo básico está bien, pero falta X» → «Falta X»
+  const cut = /(?:^|[,;:]\s*)(?:pero|lo que falta es|lo que falla es|el problema es que)\s+(.*)$/i.exec(t);
+  if (cut) t = cut[1];
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  return t.length > 150 ? t.slice(0, 147).replace(/\s+\S*$/, '') + '…' : t;
+}
+
 /** Lo que dijo la IA de cada endpoint, convertido en hallazgos de la categoría «endpoints». */
 export function endpointFindings(endpoints) {
   const out = [];
@@ -94,10 +112,10 @@ export function endpointFindings(endpoints) {
     const who = v.publico === false ? 'con login' : 'público';
     out.push({
       tool: 'ia', cat: 'endpoints', rule: 'revision-endpoint', severity: sev, file: e.file, line: e.line, ref: e.ref,
+      // el titular sale de lo que dijo la IA: «datos» es lo que el endpoint toca, no siempre lo que filtra
       title: v.deberiaSerPublico === false && v.publico !== false
         ? `«${e.method} ${e.path}» está abierto a cualquiera y no debería`
-        : datos.length ? `«${e.method} ${e.path}» suelta ${datos.slice(0, 3).join(', ')}${who === 'público' ? ' sin pedir login' : ''}`
-          : `«${e.method} ${e.path}» tiene un problema de acceso`,
+        : `«${e.method} ${e.path}»: ${(v.titulo || '').trim() || firstSentence(v.motivo) || (who === 'público' ? 'público, con un problema de acceso' : 'tiene un problema de acceso')}`,
       detail: `${v.motivo || ''}${datos.length ? ` Datos expuestos: ${datos.join(', ')}.` : ''}`.trim(),
       fix: v.arreglo || `Revisa el control de acceso de ${e.method} ${e.path} en ${e.file}:${e.line}.`,
     });

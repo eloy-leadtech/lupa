@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { readJSON, writeJSON, SEV_RANK, plural } from './lib/util.mjs';
 import { toIssues, endpointFindings, makeMapper, findingId, CATS, OUTSIDE_NODE } from './lib/issues.mjs';
 import { loadAnswers, endpointKey, triageKey } from './lib/review.mjs';
+import { buildReport } from './lib/report.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.join(HERE, '..', 'assets', 'lupa-ui.js');
@@ -22,6 +23,8 @@ const rawGraph = fs.readFileSync(path.join(fp, 'graph.json'), 'utf8').trim();
 const graph = JSON.parse(rawGraph);
 const found = readJSON(path.join(lupaDir, 'hallazgos.json'));
 const surface = readJSON(path.join(lupaDir, 'superficie.json'), { endpoints: [] });
+const tech = readJSON(path.join(lupaDir, 'tecnologia.json'));
+const datos = readJSON(path.join(lupaDir, 'datos.json'));
 if (!found) { console.error('No hay floorplan/lupa/hallazgos.json: lanza antes scan.mjs.'); process.exit(2); }
 const answers = loadAnswers(path.join(lupaDir, 'revision'));
 
@@ -58,7 +61,9 @@ for (const x of answers.extra) {
 }
 
 // endpoints con la respuesta de la IA
-const endpoints = (surface.endpoints || []).map((e) => ({ ...e, shown: e.realPath || e.path, revision: answers.endpoints.get(endpointKey(e)) || null }));
+// una revisión hecha sobre otro código (huella distinta) ya no vale: el endpoint sale como «sin revisar»
+const reviewOf = (e) => { const a = answers.endpoints.get(endpointKey(e)); return a && (!a.huella || !e.huella || a.huella === e.huella) ? a : null; };
+const endpoints = (surface.endpoints || []).map((e) => ({ ...e, shown: e.realPath || e.path, revision: reviewOf(e) }));
 findings.push(...endpointFindings(endpoints));
 
 // floorplan ya avisa de secretos; si Lupa tiene el mismo fichero, se queda el de Lupa (trae el historial)
@@ -101,13 +106,24 @@ graph.lupa = {
   })),
   revision: { endpoints: reviewed, endpointsTotal: endpoints.length, hallazgosCribados: answers.findings.size, descartados: discarded.length },
   descartados: discarded.slice(0, 200).map((d) => ({ titulo: d.title, fichero: d.file || '', motivo: d.motivo || '', herramienta: d.tool })),
+  // librerías con CVE del catálogo KEV: lo primero que hay que parchear
+  kev: findings.filter((f) => f.kev?.length).map((f) => ({
+    paquete: f.pkg, version: f.version, cves: f.kev, fichero: f.file, epss: Math.max(0, ...(f.cves || []).filter((c) => c.kev).map((c) => c.epss || 0)),
+    ransomware: (f.cves || []).some((c) => c.kev?.ransomware), arreglo: [...new Set((f.cves || []).filter((c) => c.kev && c.fixed).map((c) => c.fixed))].join(', '),
+  })),
+  tecnologia: tech ? {
+    sinSoporte: tech.componentes.filter((c) => c.eol?.estado === 'sin-soporte').map((c) => ({ nombre: c.nombre, version: c.version, tipo: c.tipo, fichero: c.fichero, fin: c.eol.finSoporte })),
+    piezas: tech.componentes.length, ia: [...new Set((tech.ia || []).map((a) => a.nombre))], ficherosIA: tech.ficherosIA || [],
+  } : null,
+  datos: datos ? { resumen: Object.fromEntries(Object.entries(datos.resumen).map(([k, v]) => [k, { campos: v.campos, ficheros: v.ficheros.length, especial: !!v.especial }])),
+    ficheros: datos.ficheros.map((d) => ({ fichero: d.fichero, tipos: d.tipos, especial: d.especial, cifrado: d.cifrado })) } : null,
 };
 
 // ---------------------------------------------------------------- escribir
 const json = JSON.stringify(graph);
 fs.writeFileSync(path.join(fp, 'graph.json'), json);
 const LS = String.fromCharCode(0x2028), PS = String.fromCharCode(0x2029); // separadores de línea de Unicode, que rompen un <script>
-const BS = String.fromCharCode(92); // la barra invertida, escrita as\u00ed para que no la toque ning\u00fan editor
+const BS = String.fromCharCode(92); // la barra invertida, escrita con su codigo para que ningun editor la toque
 const esc = (s) => s.replace(/<\/(script)/gi, '<' + BS + '/$1').split(LS).join(BS + 'u2028').split(PS).join(BS + 'u2029');
 let html = fs.readFileSync(path.join(fp, 'index.html'), 'utf8');
 const at = html.indexOf(esc(rawGraph));
@@ -118,6 +134,8 @@ const ui = fs.readFileSync(UI, 'utf8').replace(/<\/script/gi, '<\\/script');
 html = html.replace(/<\/body>(?![\s\S]*<\/body>)/, `<!--lupa:inicio--><script>/* Lupa */\n${ui}</script><!--lupa:fin-->\n</body>`);
 html = html.replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t.replace(/ · Lupa$/, '')} · Lupa</title>`);
 fs.writeFileSync(path.join(fp, 'index.html'), html);
+// el informe para quien evalúa: un solo HTML, sin nada externo
+fs.writeFileSync(path.join(lupaDir, 'informe.html'), buildReport({ graph, tech, datos }));
 
 // informe en texto, para pegar en un ticket o en el canal del equipo
 const md = [`# Lupa · ${graph.project?.name || path.basename(root)}`, '', `Generado el ${new Date().toLocaleString('es-ES')}.`, '',
@@ -130,4 +148,4 @@ fs.writeFileSync(path.join(lupaDir, 'informe.md'), md.join('\n'));
 console.log(`LUPA  ${plural(lupaIssues.length, 'aviso')} en el mapa (${count('high', lupaIssues)} graves · ${count('medium', lupaIssues)} a mirar · ${count('low', lupaIssues)} menores) + ${finalFp.length} de floorplan`);
 console.log(`      endpoints revisados por la IA: ${reviewed}/${endpoints.length} · descartados: ${discarded.length}${mapper.outside.size ? ` · ${mapper.outside.size} ficheros colgados en «Fuera del mapa»` : ''}`);
 if (reviewed < endpoints.length) console.log(`      ⚠ faltan ${endpoints.length - reviewed} endpoints por revisar: el mapa los enseña como «sin revisar».`);
-console.log(`✓ mapa actualizado: ${path.relative(root, path.join(fp, 'index.html'))} · informe: floorplan/lupa/informe.md`);
+console.log(`✓ mapa actualizado: ${path.relative(root, path.join(fp, 'index.html'))} · informe: floorplan/lupa/informe.html (y .md)`);

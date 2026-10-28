@@ -31,6 +31,10 @@
     .card.lp-l { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, ${COLOR.low} 70%, transparent); }
     .lp-b { position: absolute; top: 10px; right: 10px; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; font: 600 12px/22px Inter, sans-serif; text-align: center; color: #1a0d0d; }
     .lp-b.lp-h { background: ${COLOR.high}; box-shadow: none; } .lp-b.lp-m { background: ${COLOR.medium}; box-shadow: none; } .lp-b.lp-l { background: ${COLOR.low}; box-shadow: none; }
+    .card.lp-d { box-shadow: inset 0 0 0 2px #9085e9, 0 0 24px -8px #9085e9; } .lp-b.lp-d { background: #9085e9; color: #120d2a; box-shadow: none; }
+    .lp-modes { display: inline-flex; background: var(--raise); border-radius: 10px; padding: 3px; gap: 2px; margin-top: 10px; }
+    .lp-modes button { border: 0; background: transparent; color: var(--text-2); font: 500 12.5px Inter, sans-serif; padding: 5px 10px; border-radius: 8px; cursor: pointer; }
+    .lp-modes button.on { background: var(--surface-hover, rgba(255,255,255,.08)); color: var(--text-1, #fff); }
     #btn-lupa .badge { background: ${COLOR.high}; color: #1a0d0d; }
     #btn-lupa.off svg.i { opacity: .5; }
     .lp-k { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
@@ -45,12 +49,29 @@
   `;
   document.head.appendChild(style);
 
-  let heatOn = SC.store.get('lupa-calor', true);
+  // capa de datos personales: cuántos ficheros con datos de personas hay dentro de cada tarjeta
+  const D = L.datos?.ficheros || [];
+  const pii = new Map();
+  for (const d of D) {
+    const id = 'f:' + d.fichero; if (!SC.exists(id)) continue;
+    for (const x of new Set([id, ...SC.chain(id)])) { const v = pii.get(x) || { n: 0, especial: 0 }; v.n++; if (d.especial) v.especial++; pii.set(x, v); }
+  }
+  // modo del mapa: riesgo (calor por severidad), datos (dónde viven los datos personales) o nada
+  let mode = SC.store.get('lupa-modo', 'riesgo');
+  let heatOn = mode !== 'nada';
   function paint() {
     for (const [id, g] of SC.state.chipEls || []) {
       const card = g.querySelector('.card'); if (!card) continue;
-      card.classList.remove('lp-h', 'lp-m', 'lp-l');
+      card.classList.remove('lp-h', 'lp-m', 'lp-l', 'lp-d');
       card.querySelector('.lp-b')?.remove();
+      if (mode === 'datos') {
+        const v = pii.get(norm(id)); if (!v) continue;
+        card.classList.add('lp-d');
+        const b = document.createElement('span');
+        b.className = 'lp-b lp-d'; b.textContent = `DP ${v.n}`; b.title = `${v.n} ficheros con datos personales${v.especial ? ` (${v.especial} con categorías especiales)` : ''}`;
+        card.appendChild(b);
+        continue;
+      }
       if (!heatOn) continue;
       const x = heat.get(norm(id)); if (!x) continue;
       const s = x.high ? 'high' : x.medium ? 'medium' : 'low';
@@ -90,7 +111,13 @@
     return `<div class="sec"><h3>Lupa · seguridad de todo el proyecto</h3>
       <div class="lp-k"><div><b style="color:${COLOR.high}">${total('high')}</b><span>graves</span></div><div><b style="color:${COLOR.medium}">${total('medium')}</b><span>a mirar</span></div><div><b style="color:${COLOR.low}">${total('low')}</b><span>menores</span></div></div>
       <div class="lp-small">IA: ${R.endpoints || 0} de ${R.endpointsTotal || 0} endpoints revisados · ${R.descartados || 0} falsos positivos quitados</div>
-      <div class="lp-sw"><button class="btn soft" data-lp-heat>${SC.iconI('lupa')}Mapa de calor: ${heatOn ? 'sí' : 'no'}</button></div></div>
+      <div class="lp-modes" role="group" aria-label="Qué pinta el mapa">${[['riesgo', 'Riesgo'], ['datos', 'Datos personales'], ['nada', 'Nada']].map(([k, n]) => `<button data-lp-mode="${k}" class="${mode === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="lp-sw"><a class="btn soft" href="lupa/informe.html" target="_blank" rel="noopener">${SC.iconI('lupa')}Abrir el informe</a></div></div>
+      ${(L.kev || []).length || L.tecnologia?.sinSoporte?.length || D.length ? `<div class="sec"><h3>Lo más vigilado</h3><div class="list">
+        ${(L.kev || []).length ? `<a class="row" data-lp-x="kev"><span class="dot" style="background:${COLOR.high}"></span><span class="rt"><div class="rn">Explotadas ahora (KEV)</div><div class="rd">${L.kev.length} librerías con CVE que se usan en ataques reales</div></span><span class="rc">${SC.iconI('right')}</span></a>` : ''}
+        ${L.tecnologia?.sinSoporte?.length ? `<a class="row" data-lp-x="eol"><span class="dot" style="background:${COLOR.medium}"></span><span class="rt"><div class="rn">Tecnología sin soporte</div><div class="rd">${L.tecnologia.sinSoporte.length} piezas sin parches de seguridad</div></span><span class="rc">${SC.iconI('right')}</span></a>` : ''}
+        ${D.length ? `<a class="row" data-lp-x="datos"><span class="dot" style="background:#9085e9"></span><span class="rt"><div class="rn">Datos personales</div><div class="rd">${D.length} modelos o tablas · ${Object.keys(L.datos.resumen || {}).slice(0, 4).join(', ')}</div></span><span class="rc">${SC.iconI('right')}</span></a>` : ''}
+      </div></div>` : ''}
       <div class="sec"><h3>Por tipo</h3><div class="list">${cats.map((c) => {
         const k = L.categorias[c]; const s = k.high ? 'high' : k.medium ? 'medium' : 'low';
         return `<a class="row" data-lp-cat="${h(c)}"><span class="dot" style="background:${COLOR[s]}"></span><span class="rt"><div class="rn">${h(L.nombres[c])}</div><div class="rd">${['high', 'medium', 'low'].filter((x) => k[x]).map((x) => `${k[x]} ${WORD[x]}`).join(' · ')}</div></span><span class="rc">${SC.iconI('right')}</span></a>`;
@@ -111,7 +138,14 @@
       else if (k === 'pub') showEp('Endpoints públicos', pub);
       else showEp('Sin revisar por la IA', pending);
     }));
-    el.querySelector('[data-lp-heat]')?.addEventListener('click', () => { heatOn = !heatOn; SC.store.set('lupa-calor', heatOn); paint(); openPanel(); btn.classList.toggle('off', !heatOn); });
+    el.querySelectorAll('[data-lp-mode]').forEach((x) => x.addEventListener('click', () => { mode = x.dataset.lpMode; heatOn = mode !== 'nada'; SC.store.set('lupa-modo', mode); paint(); openPanel(); btn.classList.toggle('off', !heatOn); }));
+    el.querySelectorAll('[data-lp-x]').forEach((x) => x.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const k = x.dataset.lpX;
+      if (k === 'kev') board('Explotadas ahora (KEV)', 'Librerías con CVE del catálogo KEV de la CISA: lo primero que hay que parchear.', L.kev.map((f) => ['f:' + f.fichero, `${f.paquete} ${f.version} · ${f.cves.join(', ')}${f.arreglo ? ` · arreglado en ${f.arreglo}` : ''}`]));
+      else if (k === 'eol') board('Tecnología sin soporte', 'Piezas que ya no reciben parches de seguridad.', L.tecnologia.sinSoporte.map((c) => ['f:' + c.fichero, `${c.nombre} ${c.version} (${c.tipo})${c.fin ? ` · sin soporte desde ${c.fin}` : ''}`]));
+      else { mode = 'datos'; SC.store.set('lupa-modo', mode); board('Datos personales', 'Dónde se guardan datos de personas. «Especial» = salud, antecedentes, biometría u origen (RGPD art. 9).', D.map((d) => ['f:' + d.fichero, `${d.tipos.join(', ')}${d.especial ? ' · especial' : ''}${d.cifrado ? '' : ' · sin pistas de cifrado'}`])); }
+    }));
   }
   const openPanel = () => SC.showPanel(panelHtml(), bindPanel);
 

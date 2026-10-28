@@ -75,6 +75,164 @@ rules:
       lupa-severity: HIGH
       lupa-detail: "Un contenedor privilegiado, o con el socket de Docker montado, puede tomar el control de la máquina que lo ejecuta. Si se le cuela código malicioso, el servidor entero queda comprometido."
 
+  # ------------------------------------------------------------ apps con IA (OWASP Top 10 para LLM)
+  - id: lupa.ia.clave-en-el-navegador
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "**/*.vue", "**/*.svelte", "**/.env", "**/.env.*"] }
+    pattern-regex: '\b(?:NEXT_PUBLIC|VITE|REACT_APP|EXPO_PUBLIC|NUXT_PUBLIC|PUBLIC|GATSBY)_[A-Z0-9_]*(?:OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|MISTRAL|GROQ|COHERE|LLM|AZURE_OPENAI|HUGGINGFACE|HF|PINECONE|AI)[A-Z0-9_]*(?:KEY|TOKEN|SECRET)\b'
+    message: "La clave del proveedor de IA va al navegador"
+    metadata:
+      category: security
+      lupa-cat: ia
+      lupa-severity: HIGH
+      lupa-detail: "Las variables con prefijo NEXT_PUBLIC_, VITE_, REACT_APP_… se meten en el JavaScript que descarga cualquier visitante. Con esa clave, cualquiera usa vuestra cuenta de IA a vuestra costa y puede leer o borrar lo que tengáis allí. Las llamadas al modelo tienen que pasar por el servidor."
+
+  - id: lupa.ia.sdk-en-el-navegador
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "**/*.vue", "**/*.svelte"] }
+    pattern-regex: '\bdangerouslyAllowBrowser\s*:\s*true'
+    message: "El SDK de IA se usa directamente desde el navegador"
+    metadata:
+      category: security
+      lupa-cat: ia
+      lupa-severity: HIGH
+      lupa-detail: "dangerouslyAllowBrowser: true hace que la clave del proveedor de IA viaje al navegador del usuario. Cualquiera puede copiarla de las herramientas de desarrollador."
+
+  - id: lupa.ia.respuesta-sin-limpiar
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.jsx", "**/*.tsx", "**/*.js", "**/*.ts", "**/*.vue", "**/*.svelte", "**/*.html"] }
+    pattern-regex: '(?:dangerouslySetInnerHTML=\{\{\s*__html:\s*[^}]*(?:message|response|completion|answer|content|output|reply|chunk|markdown|stream)|v-html="[^"]*(?:message|response|answer|content|reply|output)|\{@html\s+[^}]*(?:message|response|answer|content|reply)|\.innerHTML\s*[+]?=\s*[^;\n]*(?:response|completion|answer|message|reply|chunk))'
+    message: "La respuesta del modelo se pinta como HTML sin limpiar"
+    metadata:
+      category: security
+      lupa-cat: ia
+      lupa-severity: HIGH
+      lupa-detail: "Si el modelo devuelve HTML o JavaScript (porque alguien se lo ha pedido con un mensaje trampa o porque viene de un documento que ha leído), se ejecuta en el navegador del usuario: robo de sesión, phishing dentro del propio chat. Hay que pasar la respuesta por un sanitizador (DOMPurify) o pintarla como texto. Es el LLM05 de OWASP."
+
+  - id: lupa.ia.entrada-en-el-prompt-de-sistema
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.mjs", "**/*.py", "**/*.php", "**/*.java", "**/*.go"] }
+    pattern-regex: '(?:role["'']?\s*[:=]\s*["'']system["''][^}\n]{0,80}content["'']?\s*[:=]\s*(?:`[^`]*\$\{[^}]*(?:req\.|request|body|input|query|params|user|message)|f["''][^"'']*\{[^}]*(?:request|body|input|query|user|message))|system(?:_prompt|Prompt)?\s*[:=]\s*(?:`[^`]*\$\{[^}]*(?:req\.|request|body|input|query|params)|f["''][^"'']*\{[^}]*(?:request\.|body|input|query)))'
+    message: "Lo que escribe el usuario entra en las instrucciones de sistema del modelo"
+    metadata:
+      category: security
+      lupa-cat: ia
+      lupa-severity: MEDIUM
+      lupa-detail: "Mezclar texto del usuario con las instrucciones de sistema le da al usuario el mando del modelo (inyección de prompt): puede saltarse las reglas, sacar el prompt interno o hacer que use herramientas que no debería. El texto del usuario va en su propio mensaje, nunca dentro del de sistema. Es el LLM01 de OWASP."
+
+  - id: lupa.ia.herramientas-peligrosas
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.py", "**/*.js", "**/*.ts", "**/*.mjs"] }
+    pattern-regex: '\b(?:ShellTool|PythonREPLTool|PythonAstREPLTool|create_python_agent|create_pandas_dataframe_agent|create_sql_agent|BashProcess|allow_dangerous_code\s*=\s*True|allow_dangerous_requests\s*=\s*True|allowDangerousRequests\s*:\s*true|load_tools\(\s*\[[^\]]*(?:terminal|python_repl|requests_all|shell))'
+    message: "El agente de IA puede ejecutar código, comandos o consultas por su cuenta"
+    metadata:
+      category: security
+      lupa-cat: ia
+      lupa-severity: HIGH
+      lupa-detail: "Si el modelo tiene una herramienta de shell, Python, SQL libre o peticiones HTTP sin límites, un mensaje trampa (del usuario o de un documento que lee) puede acabar ejecutando comandos en el servidor o leyendo la base de datos entera. Hay que darle solo herramientas acotadas y pedir confirmación para lo peligroso. Es el LLM06 de OWASP."
+
+  - id: lupa.ia.codigo-remoto-del-modelo
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.py"] }
+    pattern-regex: '(?:trust_remote_code\s*=\s*True|torch\.load\((?![^)]*weights_only\s*=\s*True)[^)]*\))'
+    message: "Cargar el modelo ejecuta código que viene con él"
+    metadata:
+      category: security
+      lupa-cat: ia
+      lupa-severity: HIGH
+      lupa-detail: "trust_remote_code=True y torch.load sin weights_only=True ejecutan código Python incluido en el modelo descargado. Un modelo manipulado toma el control del servidor. Es la cadena de suministro de IA (LLM03 de OWASP)."
+
+  # ------------------------------------------------------------ web y base de datos
+  - id: lupa.web.cookie-insegura
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php", "**/.env", "**/*.yml", "**/*.properties"] }
+    pattern-regex: '(?i)(?:\bhttpOnly\s*:\s*false|\bsecure\s*:\s*false|SESSION_COOKIE_(?:SECURE|HTTPONLY)\s*=\s*False|CSRF_COOKIE_SECURE\s*=\s*False|SESSION_SECURE_COOKIE\s*=\s*false|["'']?(?:secure|httponly)["'']?\s*=>\s*false|server\.servlet\.session\.cookie\.(?:secure|http-only)\s*=\s*false)'
+    message: "La cookie de sesión se puede robar más fácil (sin Secure o sin HttpOnly)"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: MEDIUM
+      lupa-detail: "Sin HttpOnly, cualquier script inyectado en la página lee la cookie de sesión. Sin Secure, viaja también por HTTP sin cifrar. En los dos casos alguien puede quedarse con la sesión del usuario."
+
+  - id: lupa.web.hash-debil-de-contrasenas
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php", "**/*.java", "**/*.go", "**/*.rb"] }
+    pattern-regex: '(?i)(?:\b(?:md5|sha1)\s*\(\s*\$?[\w.\[\]''"]*(?:password|passwd|pass|pwd|clave|contrasena)|createHash\(\s*["''](?:md5|sha1|sha256)["'']\s*\)[^;\n]*(?:password|passwd|pass|pwd)|hashlib\.(?:md5|sha1|sha256)\([^)]*(?:password|passwd|pwd)|MessageDigest\.getInstance\(\s*"(?:MD5|SHA-1|SHA1)"\s*\))'
+    message: "Las contraseñas se guardan con un hash rápido (MD5/SHA), que se rompe en minutos"
+    metadata:
+      category: security
+      lupa-cat: codigo
+      lupa-severity: HIGH
+      lupa-detail: "MD5 o SHA sin sal ni coste se revientan a millones por segundo: si se filtra la base de datos, salen casi todas las contraseñas en claro. Hay que usar bcrypt, scrypt o Argon2."
+
+  - id: lupa.web.jwt-sin-verificar
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php", "**/*.java", "**/*.go"] }
+    pattern-regex: '(?:algorithms?\s*[:=]\s*\[?\s*["'']none["'']|verify_signature["'']?\s*:\s*False|jwt\.decode\([^)]*verify\s*=\s*False|ignoreExpiration\s*:\s*true|\.parseUnsecuredClaims\(|jwt\.decode\(\s*[^,)]+\s*\)\s*(?:;|$))'
+    message: "Los tokens de sesión (JWT) se aceptan sin comprobar la firma o la caducidad"
+    metadata:
+      category: security
+      lupa-cat: codigo
+      lupa-severity: HIGH
+      lupa-detail: "Sin verificar la firma, cualquiera fabrica un token con el usuario y el rol que quiera (también administrador). Sin comprobar la caducidad, un token robado vale para siempre."
+
+  - id: lupa.web.tls-desactivado
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php", "**/*.java", "**/*.go", "**/.env", "**/.env.*", "**/*.yml", "**/*.yaml", "**/*.properties", "**/*.json"] }
+    pattern-regex: '(?:sslmode=disable|rejectUnauthorized\s*:\s*false|useSSL=false|verify_ssl\s*=\s*False|CURLOPT_SSL_VERIFYPEER\s*,\s*(?:false|0)\b|requests\.\w+\([^)\n]*verify\s*=\s*False|InsecureSkipVerify\s*:\s*true|ssl_verify\s*[:=]\s*(?:false|False|0)\b)'
+    message: "Una conexión (a la base de datos u otro servicio) no comprueba el certificado"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: MEDIUM
+      lupa-detail: "Sin comprobar el certificado, cualquiera en medio de la red (otra máquina del mismo proveedor, una wifi) puede hacerse pasar por la base de datos o el servicio y leer las credenciales y los datos que pasan."
+
+  - id: lupa.web.url-firmada-larga
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php", "**/*.java", "**/*.go"] }
+    pattern-regex: '(?:\bexpiresIn\s*:\s*(?:[1-9]\d{4,}|\d+\s*\*\s*\d+\s*\*\s*(?:24|60))|ExpiresIn\s*=\s*[1-9]\d{4,}|expires_?in\s*=\s*[1-9]\d{4,}|Expires\s*:\s*[1-9]\d{4,}|ExpiresIn\s*:\s*[1-9]\d{4,})'
+    message: "Los enlaces firmados a ficheros duran horas o días"
+    metadata:
+      category: security
+      lupa-cat: datos
+      lupa-severity: MEDIUM
+      lupa-detail: "Un enlace firmado (S3, Azure, GCS) a un documento sirve a cualquiera que lo tenga mientras no caduque. Si dura días y se reenvía, se queda en un log o en el historial, el pasaporte o el documento queda al alcance de cualquiera. Para documentos personales, minutos."
+
+  - id: lupa.web.logs-con-datos-personales
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php", "**/*.java", "**/*.go"] }
+    pattern-regex: '(?i)(?:console\.(?:log|info|debug)|logger\.\w+|log\.\w+|logging\.\w+|print|error_log|Log\.\w+)\s*\([^)\n]*(?:req\.body|request\.(?:data|POST|json|body)|\$_POST|password|passwd|passport|pasaporte|\bdni\b|\bssn\b|card_?number|\biban\b|date_?of_?birth)'
+    message: "Los logs guardan datos personales o contraseñas"
+    metadata:
+      category: security
+      lupa-cat: datos
+      lupa-severity: MEDIUM
+      lupa-detail: "Lo que va al log acaba en sistemas que lee mucha más gente (monitorización, soporte, proveedores) y que se guardan mucho tiempo. Pasaportes, DNI, contraseñas o cuerpos enteros de peticiones no deben ir nunca a un log."
+
+  - id: lupa.secretos.cadena-de-conexion
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php", "**/*.java", "**/*.go", "**/*.yml", "**/*.yaml", "**/*.properties", "**/*.json", "**/.env", "**/.env.*", "**/*.tf"], exclude: ["**/.env.example", "**/.env.sample", "**/*.dist"] }
+    pattern-regex: '\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqps?|mssql|sqlserver)://(?!(?:user|username|usuario|root|admin|postgres)?:(?:password|pass|secret|changeme|xxx+|\*+|<[^>]*>)@)[^:\s''"/@]+:[^@\s''"$<{]{4,}@'
+    message: "Hay una cadena de conexión a una base de datos con la contraseña dentro"
+    metadata:
+      category: security
+      lupa-cat: secretos
+      lupa-severity: HIGH
+      lupa-detail: "Con esa cadena, cualquiera con acceso al repo entra directamente en la base de datos. Hay que sacarla a una variable de entorno o a un gestor de secretos, y cambiar la contraseña."
+
   # ------------------------------------------------------------ claves de la propia aplicación
   - id: lupa.secretos.clave-de-la-app
     languages: [generic]

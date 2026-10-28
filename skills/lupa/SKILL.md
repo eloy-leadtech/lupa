@@ -10,7 +10,14 @@ allowed-tools: Bash(node ${CLAUDE_SKILL_DIR}/scripts/*), Bash(node ${CLAUDE_SKIL
 Lupa junta cuatro fuentes y las pinta en el mapa del proyecto:
 
 1. **Escáneres estándar:** gitleaks (secretos, también en todo el historial de git), Semgrep (fallos de código, más las reglas propias de Lupa para Jenkins, Docker y configuraciones expuestas) y Trivy (librerías con CVE y servidores mal configurados: Terraform, Dockerfile, Kubernetes, Helm…).
-2. **Chequeos propios:** ficheros delicados subidos al repo (tfstate, claves privadas, copias de BD…), datos personales en ficheros de datos (DNI/NIE, IBAN y tarjetas validados, emails, teléfonos) y endpoints de frameworks que floorplan no ve (Laravel, Symfony, Django, PHP suelto).
+2. **Chequeos propios:**
+   - **Ficheros delicados subidos al repo:** tfstate, claves privadas, copias de BD…
+   - **Datos personales sueltos en ficheros de datos:** DNI/NIE, IBAN y tarjetas validados, emails, teléfonos.
+   - **El mapa de datos personales:** qué modelos y tablas guardan pasaportes, DNI, salud, antecedentes, fotos, datos de pago…, y si se cifran.
+   - **Endpoints que floorplan no ve:** Laravel, Symfony, Django y PHP suelto.
+   - **Reglas para apps con IA** (OWASP Top 10 para LLM) **y para web y base de datos:** cookies, hash de contraseñas, JWT, TLS, enlaces firmados, logs con datos personales.
+   - **La foto de la tecnología:** lenguajes, runtimes, frameworks, bases de datos, imágenes, Terraform, CI e IA, con versión y ciclo de vida (endoflife.date).
+   - **Cada CVE cruzado con KEV** (CISA: se está explotando ya) **y EPSS** (probabilidad de ataque).
 3. **Tu revisión, siempre:** cada endpoint (¿es público? ¿debería? ¿qué datos suelta?) y la criba de falsos positivos. Es la parte que ninguna regla hace bien, y no se salta.
 4. **El mapa de floorplan:** todo acaba en su Health, más un mapa de calor sobre las tarjetas y un botón «Lupa» con la superficie de ataque.
 
@@ -55,12 +62,37 @@ Cada `lote-NN.md` trae lo que hay que mirar, con el código delante; contesta en
   - `media`: público que suelta datos internos, o que permite abusos claros (sin límite en el login, enumerar usuarios).
   - `baja`: detalles menores.
   - `ninguna`: público a propósito y sin riesgo (login, health, catálogo) o bien protegido.
+- `titulo`: el problema en una frase corta, de unas 12 palabras («El cupo de mensajes se salta borrando el historial»). Es lo que sale en el informe y en el mapa. Vacío si es `ninguna`.
 - `motivo`: una o dos frases en castellano llano. Di qué pasa y por qué importa, no repitas el código.
 - `arreglo`: si hay riesgo, una instrucción concreta para arreglarlo, lista para pegar en Claude Code (qué fichero, qué cambiar). Vacío si es `ninguna`.
 
+Mira las **pistas** de cada endpoint y aplica la lista que toque. Cualquier punto que falle sube la severidad:
+
+- **Lleva un identificador en la ruta** (`/solicitudes/:id`, `/chats/{id}`, `/documentos/<pk>`): ¿comprueba que el recurso es del usuario que pide (o de su organización), o vale cualquier id? Es el fallo número uno en apps con expedientes de personas. Que cualquiera con sesión vea el de otro es `alta`.
+- **Toca datos personales** (pasaporte, DNI, salud, antecedentes, fotos, datos de pago): ¿los devuelve enteros cuando no hace falta?, ¿a quién?, ¿quedan en logs o en respuestas de error? Apunta en `datos` qué tipos suelta.
+- **Sube o sirve documentos:**
+  - ¿valida tipo y tamaño?, ¿hay path traversal en el nombre?
+  - ¿se guardan en un bucket público?
+  - ¿los enlaces firmados caducan en minutos?
+  - ¿se puede pedir el documento de otro?
+- **Login, registro y recuperación:**
+  - ¿hay límite de intentos?
+  - ¿se puede averiguar qué emails existen?
+  - ¿el token de recuperación es largo, aleatorio, de un solo uso y caduca?
+  - ¿el cambio de contraseña pide la actual?
+- **Llama a un modelo de IA** (OWASP Top 10 para LLM):
+  - **inyección de prompt:** el texto del usuario o de documentos que lee el modelo, ¿puede cambiar sus instrucciones o activar herramientas?
+  - **salida del modelo:** ¿se pinta como HTML, se ejecuta o va a una consulta SQL?
+  - **herramientas:** ¿qué puede hacer el modelo solo? ¿Hay alguna con permisos de más?
+  - **datos entre usuarios:** ¿se puede leer la conversación o los documentos de otro (RAG sin filtro por usuario)?
+  - **abuso y coste:** ¿hay login, límite de peticiones y `max_tokens`?
+  - **filtraciones:** ¿el prompt de sistema lleva secretos? ¿Las conversaciones se guardan o registran con datos personales sin necesidad?
+
 **Hallazgos.** `veredicto`: `real`, `falso-positivo` o `dudoso`. Solo es falso positivo si el código lo demuestra (datos de prueba, una constante que no es un secreto, una entrada ya validada); ante la duda, `dudoso`. `severidad` (alta/media/baja) solo si hay que recalibrarla. `motivo` breve.
 
-**Extra.** Si al revisar ves algo grave que ninguna herramienta pilló, añádelo a `extra`: `{ "titulo", "severidad", "categoria" (endpoints · secretos · exposicion · datos · codigo · infra), "fichero", "linea", "detalle", "arreglo" }`.
+**Extra.** Si al revisar ves algo grave que ninguna herramienta pilló, añádelo a `extra`: `{ "titulo", "severidad", "categoria" (endpoints · secretos · exposicion · datos · codigo · infra · ia), "fichero", "linea", "detalle", "arreglo" }`.
+
+**`huella`:** no la toques. Si el código del endpoint cambia, Lupa lo vuelve a pedir.
 
 **Nunca escribas el valor de un secreto** en los JSON ni en tus respuestas: como mucho el tipo y dónde está.
 
@@ -81,6 +113,8 @@ Luego informa en 4 a 6 líneas, en castellano: lo grave primero, los endpoints a
 - gitleaks y los chequeos propios: nada.
 - Semgrep: descarga sus paquetes de reglas de semgrep.dev (con `--metrics=off`; no sube código).
 - Trivy: descarga su base de datos de CVE y puede consultar Maven Central por las dependencias de Java. Si Maven corta con un 429, Lupa repite sin red.
+- npm, solo en proyectos sin fichero de bloqueo: resuelve las versiones en una carpeta aparte (`--package-lock-only --ignore-scripts`). Descarga metadatos del registro, no instala ni ejecuta nada.
+- endoflife.date, CISA KEV y FIRST EPSS: se descargan sus catálogos públicos (caché de un día en `~/.cache/lupa`). Solo se envían números de CVE.
 - La revisión: el código que lees va al proveedor de IA de la cuenta con la que trabajas. **Usa la cuenta de la empresa, no una personal.**
 
 ## En Jenkins o sin IA

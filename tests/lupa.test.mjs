@@ -10,7 +10,10 @@ import { sensitiveFiles, personalData, extraEndpoints, unlockedDependencies } fr
 import { toIssues, makeMapper, endpointFindings, OUTSIDE_NODE } from '../skills/lupa/scripts/lib/issues.mjs';
 import { writeWorksheets, loadAnswers, endpointKey, triageKey } from '../skills/lupa/scripts/lib/review.mjs';
 import { mask, normSeverity, tmpDir, globToRegExp } from '../skills/lupa/scripts/lib/util.mjs';
-import { runGitleaks } from '../skills/lupa/scripts/lib/scanners.mjs';
+import { runGitleaks, runSemgrep } from '../skills/lupa/scripts/lib/scanners.mjs';
+import { dataMap, dataFindings, aiFiles } from '../skills/lupa/scripts/lib/datamap.mjs';
+import { eolStatus, cleanVersion, purlKey } from '../skills/lupa/scripts/lib/intel.mjs';
+import { writeApps, EXPECTED_RULES } from './fixtures/apps.mjs';
 import { findTool } from '../skills/lupa/scripts/lib/tools.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -95,6 +98,54 @@ test('los lotes recuerdan lo ya revisado', () => {
   assert.equal(second.pendientesEndpoints, 1);
   assert.equal(second.yaRevisados, 1);
   assert.ok(loadAnswers(dir).endpoints.has(endpointKey(eps[0])));
+});
+
+test('si el código de un endpoint cambia, su revisión caduca y se vuelve a pedir', () => {
+  const d = tmp();
+  const dir = path.join(d, 'rev');
+  const ep = { method: 'GET', path: '/a', file: 'x.js', line: 1, huella: 'aaa' };
+  writeWorksheets({ root: d, dir, endpoints: [ep], findings: [] });
+  const lote = JSON.parse(fs.readFileSync(path.join(dir, 'lote-01.json'), 'utf8'));
+  assert.equal(lote.endpoints[0].huella, 'aaa');
+  lote.endpoints[0].severidad = 'ninguna';
+  fs.writeFileSync(path.join(dir, 'lote-01.json'), JSON.stringify(lote));
+  assert.equal(writeWorksheets({ root: d, dir, endpoints: [ep], findings: [] }).pendientesEndpoints, 0, 'mismo código: no se repite');
+  const r = writeWorksheets({ root: d, dir, endpoints: [{ ...ep, huella: 'bbb' }], findings: [] });
+  assert.equal(r.pendientesEndpoints, 1, 'código cambiado: se vuelve a revisar');
+  assert.match(fs.readFileSync(path.join(dir, 'lote-01.md'), 'utf8'), /el código cambió/);
+});
+
+test('mapa de datos personales: pasaportes, salud y el CVV prohibido', () => {
+  const d = tmp();
+  writeApps(d);
+  const m = dataMap(d, ['visados/models/application.js', 'visados/migrations/001_applicants.sql', 'visados/db.js']);
+  assert.equal(m.ficheros.length, 2);
+  assert.ok(m.resumen['pasaporte'] && m.resumen['salud'] && m.resumen['antecedentes penales']);
+  const rules = dataFindings(m).map((f) => f.rule);
+  assert.ok(rules.includes('guarda-cvv') && rules.includes('tarjeta-sin-cifrar') && rules.includes('datos-sensibles-sin-cifrar'));
+  assert.deepEqual(aiFiles(d, ['chat/api/chat.ts', 'chat/agent/agent.py', 'visados/db.js']), ['chat/api/chat.ts', 'chat/agent/agent.py']);
+});
+
+test('reglas propias de IA y web: cada una pilla su fallo', { skip: !findTool('semgrep') && 'Semgrep no está instalado' }, () => {
+  const d = tmp();
+  writeApps(d);
+  const got = new Set(runSemgrep(findTool('semgrep'), d, { rulesFile: path.join(HERE, '..', 'skills', 'lupa', 'rules', 'lupa.yml'), packs: [] }).map((f) => f.rule));
+  for (const r of EXPECTED_RULES) assert.ok(got.has(r), `falta ${r}`);
+});
+
+test('versiones y ciclo de vida', () => {
+  assert.equal(cleanVersion('^4.17.1'), '4.17.1');
+  assert.equal(cleanVersion('14-alpine'), '14');
+  const product = { name: 'nodejs', releases: [
+    { name: '26', isEol: false, eolFrom: '2029-04-30', isLts: false, latest: { name: '26.1.0' } },
+    { name: '24', isEol: false, eolFrom: '2028-04-30', isLts: true, latest: { name: '24.9.0' } },
+    { name: '20', isEol: true, eolFrom: '2026-04-30', latest: { name: '20.19.5' } },
+  ] };
+  assert.equal(eolStatus(product, '20.11.0').estado, 'sin-soporte');
+  assert.equal(eolStatus(product, '24.1.0').estado, 'al-dia', 'una LTS en vigor no está desactualizada');
+  assert.equal(eolStatus(product, '12.0.0').estado, 'sin-soporte', 'más vieja que cualquier rama conocida');
+  assert.equal(eolStatus(product, '99.0.0').estado, 'desconocido', 'una versión que el catálogo aún no tiene');
+  assert.equal(purlKey('pkg:npm/%40angular/core@17.0.0'), 'npm/@angular/core');
 });
 
 test('la misma regla en el mismo fichero se criba una vez', () => {

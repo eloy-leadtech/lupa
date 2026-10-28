@@ -51,8 +51,11 @@ export function writeWorksheets({ root, dir, endpoints, findings }) {
   fs.mkdirSync(dir, { recursive: true });
   const prev = loadAnswers(dir);
   for (const n of fs.readdirSync(dir)) if (/^lote-\d+\.(md|json)$/.test(n)) fs.rmSync(path.join(dir, n));
+  // una respuesta vale mientras el código del endpoint no cambie (misma huella); las antiguas sin huella adoptan la de hoy
+  const still = (e) => { const a = prev.endpoints.get(endpointKey(e)); return !!a && (!a.huella || !e.huella || a.huella === e.huella); };
+  const changed = new Set(endpoints.filter((e) => prev.endpoints.has(endpointKey(e)) && !still(e)).map(endpointKey));
   // lo ya contestado se guarda en un lote 00, para que no se pierda al regenerar
-  const keptE = endpoints.filter((e) => prev.endpoints.has(endpointKey(e))).map((e) => prev.endpoints.get(endpointKey(e)));
+  const keptE = endpoints.filter(still).map((e) => ({ ...prev.endpoints.get(endpointKey(e)), huella: e.huella || prev.endpoints.get(endpointKey(e)).huella }));
   const groups = triageGroups(findings.filter(needsTriage));
   const keptF = groups.filter((f) => prev.findings.has(f.id)).map((f) => prev.findings.get(f.id));
   if (keptE.length || keptF.length || prev.extra.length) writeJSON(path.join(dir, 'lote-00.json'), { revisado: true, endpoints: keptE, hallazgos: keptF, extra: prev.extra });
@@ -60,7 +63,7 @@ export function writeWorksheets({ root, dir, endpoints, findings }) {
   const secretLines = new Map();
   for (const f of findings) if (f.cat === 'secretos') { if (!secretLines.has(f.file)) secretLines.set(f.file, new Set()); secretLines.get(f.file).add(f.line); }
   const hideIn = (file) => secretLines.get(file) || new Set();
-  const pendE = endpoints.filter((e) => !prev.endpoints.has(endpointKey(e)));
+  const pendE = endpoints.filter((e) => !still(e));
   const pendF = groups.filter((f) => !prev.findings.has(f.id));
   const lotes = [];
   for (let i = 0; i < pendE.length; i += LOTE_ENDPOINTS) lotes.push({ endpoints: pendE.slice(i, i + LOTE_ENDPOINTS), hallazgos: [] });
@@ -73,7 +76,14 @@ export function writeWorksheets({ root, dir, endpoints, findings }) {
     for (const e of lote.endpoints) {
       md.push(`### ${e.method} ${e.realPath || e.path}`, `- clave: \`${endpointKey(e)}\``, `- fichero: ${e.file}:${e.line} · framework: ${e.framework || 'detectado por floorplan'}`,
         ...(e.otherPaths?.length ? [`- también montado en: ${e.otherPaths.slice(0, 8).join(', ')}${e.otherPaths.length > 8 ? ` y ${e.otherPaths.length - 8} más` : ''}`] : []),
-        `- pistas: ${[e.floorplanOpen ? 'floorplan no ve login' : e.floorplanOpen === false ? 'floorplan ve login' : '', e.authHint ? 'hay algo que parece un login cerca' : '', e.sensitive ? 'la ruta tiene nombre delicado' : ''].filter(Boolean).join(' · ') || 'ninguna'}`,
+        `- pistas: ${[
+          changed.has(endpointKey(e)) ? '⚠ el código cambió desde la última revisión' : '',
+          e.floorplanOpen ? 'floorplan no ve login' : e.floorplanOpen === false ? 'floorplan ve login' : '',
+          e.authHint ? 'hay algo que parece un login cerca' : '', e.sensitive ? 'la ruta tiene nombre delicado' : '',
+          e.parametroId ? 'lleva un identificador en la ruta: comprueba que solo da lo del propio usuario' : '',
+          e.datosPersonales ? 'toca campos de datos personales del mapa de datos' : '',
+          e.usaIA ? 'llama a un modelo de IA: aplica la lista de IA' : '',
+        ].filter(Boolean).join(' · ') || 'ninguna'}`,
         '', '```', snippet(path.join(root, e.file), e.line, 3, 30, hideIn(e.file)), '```', '');
     }
     if (lote.hallazgos.length) md.push('## Hallazgos para cribar', '');
@@ -86,7 +96,7 @@ export function writeWorksheets({ root, dir, endpoints, findings }) {
     }
     fs.writeFileSync(path.join(dir, `lote-${num}.md`), md.join('\n'));
     writeJSON(path.join(dir, `lote-${num}.json`), {
-      endpoints: lote.endpoints.map((e) => ({ clave: endpointKey(e), publico: null, deberiaSerPublico: null, datos: [], severidad: '', motivo: '', arreglo: '' })),
+      endpoints: lote.endpoints.map((e) => ({ clave: endpointKey(e), huella: e.huella || '', publico: null, deberiaSerPublico: null, datos: [], severidad: '', titulo: '', motivo: '', arreglo: '' })),
       hallazgos: lote.hallazgos.map((f) => ({ id: f.id, veredicto: '', severidad: '', motivo: '' })),
       extra: [],
     });

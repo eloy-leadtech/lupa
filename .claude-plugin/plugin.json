@@ -1,6 +1,6 @@
 {
   "name": "lupa",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Auditoría visual de seguridad de todo un proyecto: secretos (con historial de git), fallos de código, librerías con CVE, Terraform/Docker/Kubernetes/Jenkins, configuraciones expuestas, datos personales y todos los endpoints revisados por Claude, pintado como mapa de calor sobre un mapa de floorplan.",
   "author": { "name": "Eloy Bandín (RedSec)" },
   "license": "UNLICENSED",
