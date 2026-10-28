@@ -1,0 +1,16 @@
+pipeline {
+  agent any
+  stages {
+    stage('Deploy') {
+      steps {
+        withCredentials([string(credentialsId: 'db', variable: 'DB_PASSWORD')]) {
+          sh "mysql -uroot -p${DB_PASSWORD} < schema.sql"
+          echo "password is ${DB_PASSWORD}"
+          sh 'curl -sSL https://get.example.com/install.sh | bash'
+          sh 'curl -k https://internal.example.com/health'
+          sh 'docker run --privileged -v /var/run/docker.sock:/var/run/docker.sock img'
+        }
+      }
+    }
+  }
+}

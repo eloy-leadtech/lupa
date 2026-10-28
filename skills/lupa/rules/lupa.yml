@@ -1,0 +1,210 @@
+# Reglas propias de Lupa para Semgrep: lo que los paquetes estándar no miran.
+# Jenkins y scripts de despliegue, configuraciones que dejan cosas al aire y
+# bases de datos expuestas. Todas son de categoría "security".
+rules:
+  # ------------------------------------------------------------ Jenkins y CI
+  - id: lupa.jenkins.secreto-interpolado
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/Jenkinsfile*", "**/*.jenkinsfile", "**/jenkins/**/*.groovy", "**/vars/*.groovy"] }
+    pattern-regex: 'sh\s*\(?\s*"(?:[^"\\\n]|\\.)*\$\{?\s*(?:env\.)?[A-Z_]*(?:PASS|PASSWORD|PWD|TOKEN|SECRET|KEY|CRED)[A-Z_]*'
+    message: "Jenkins mete una credencial en un comando con comillas dobles"
+    metadata:
+      category: security
+      lupa-cat: infra
+      lupa-severity: MEDIUM
+      lupa-detail: "Con comillas dobles, Groovy sustituye el secreto antes de lanzar el comando, así que queda en la lista de procesos del agente y puede acabar en los logs. Jenkins avisa de esto como «insecure interpolation». Usa comillas simples y deja que lo expanda el shell ($PASSWORD)."
+
+  - id: lupa.jenkins.echo-secreto
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/Jenkinsfile*", "**/*.jenkinsfile", "**/*.groovy", "**/*.sh"] }
+    pattern-regex: 'echo\s+["''][^\n]*\$\{?\s*(?:env\.)?[A-Z_]*(?:PASS|PASSWORD|TOKEN|SECRET|APIKEY|API_KEY)[A-Z_]*'
+    message: "El pipeline imprime una credencial en el log"
+    metadata:
+      category: security
+      lupa-cat: infra
+      lupa-severity: HIGH
+      lupa-detail: "Un echo con la variable del secreto lo deja escrito en el log de la build, que suele poder leer mucha más gente que la credencial."
+
+  - id: lupa.ci.curl-a-shell
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/Jenkinsfile*", "**/*.sh", "**/Dockerfile*", "**/*.yml", "**/*.yaml", "**/Makefile"] }
+    pattern-regex: '(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:ba|z)?sh\b'
+    message: "Se descarga un script de internet y se ejecuta sin comprobarlo"
+    metadata:
+      category: security
+      lupa-cat: infra
+      lupa-severity: MEDIUM
+      lupa-detail: "Si alguien cambia ese script en origen (o en medio), se ejecuta su código con los permisos del servidor de build. Descárgalo, comprueba su hash o firma, y luego ejecútalo."
+
+  - id: lupa.ci.tls-desactivado
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/Jenkinsfile*", "**/*.sh", "**/Dockerfile*", "**/*.yml", "**/*.yaml", "**/*.groovy", "**/Makefile", "**/.npmrc", "**/.gitconfig"] }
+    pattern-regex: '(?:curl\b[^\n]*\s(?:-k|--insecure)\b|NODE_TLS_REJECT_UNAUTHORIZED\s*[=:]\s*["'']?0|GIT_SSL_NO_VERIFY\s*[=:]\s*["'']?(?:1|true)|sslVerify\s*=?\s*false|--no-check-certificate|strict-ssl\s*=\s*false)'
+    message: "Se desactiva la comprobación de certificados HTTPS"
+    metadata:
+      category: security
+      lupa-cat: infra
+      lupa-severity: MEDIUM
+      lupa-detail: "Sin comprobar el certificado, cualquiera en medio de la red puede hacerse pasar por el servidor y colar paquetes o robar credenciales."
+
+  - id: lupa.jenkins.agente-cualquiera
+    languages: [generic]
+    severity: INFO
+    paths: { include: ["**/Jenkinsfile*", "**/*.jenkinsfile"] }
+    pattern-regex: '\bagent\s+any\b'
+    message: "El pipeline puede ejecutarse en cualquier agente de Jenkins"
+    metadata:
+      category: security
+      lupa-cat: infra
+      lupa-severity: LOW
+      lupa-detail: "Con «agent any» la build puede caer en el propio controlador de Jenkins o en un agente con más permisos de los necesarios. Mejor fijar una etiqueta de agente dedicado."
+
+  - id: lupa.docker.privilegiado
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/Jenkinsfile*", "**/*.sh", "**/*.yml", "**/*.yaml"] }
+    pattern-regex: '(?:docker\s+run\b[^\n]*--privileged|privileged:\s*true|/var/run/docker\.sock)'
+    message: "Un contenedor corre en modo privilegiado o con acceso al Docker del servidor"
+    metadata:
+      category: security
+      lupa-cat: infra
+      lupa-severity: HIGH
+      lupa-detail: "Un contenedor privilegiado, o con el socket de Docker montado, puede tomar el control de la máquina que lo ejecuta. Si se le cuela código malicioso, el servidor entero queda comprometido."
+
+  # ------------------------------------------------------------ claves de la propia aplicación
+  - id: lupa.secretos.clave-de-la-app
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/*.py", "**/*.js", "**/*.ts", "**/*.php", "**/*.rb", "**/*.yml", "**/*.yaml", "**/*.properties", "**/.env", "**/.env.*"], exclude: ["**/.env.example", "**/.env.sample", "**/*.dist"] }
+    pattern-regex: '(?im)^\s*(?:SECRET_KEY|app\.secret_key|APP_KEY|JWT_SECRET|SESSION_SECRET|COOKIE_SECRET|secret_key_base|jwt\.secret|session\.secret)\s*[=:]\s*["'']?(?!(?:change|your|example|xxx|dummy|test|secret|<|\$\{|%\(|env\(|os\.environ|getenv|process\.env))[A-Za-z0-9+/=_\-!@#$%^&*()]{12,}'
+    message: "La clave secreta de la aplicación está escrita en el código"
+    metadata:
+      category: security
+      lupa-cat: secretos
+      lupa-severity: HIGH
+      lupa-detail: "Con esta clave se firman las sesiones, las cookies o los tokens. Quien la tenga puede fabricar una sesión de cualquier usuario, incluido el administrador, sin saber su contraseña. Hay que sacarla a una variable de entorno y cambiarla."
+
+  # ------------------------------------------------------------ configuraciones que exponen
+  - id: lupa.exposicion.laravel-debug
+    languages: [generic]
+    severity: ERROR
+    paths: { include: ["**/.env", "**/.env.prod*", "**/.env.production"] }
+    pattern-regex: '(?m)^\s*APP_DEBUG\s*=\s*true\b'
+    message: "Laravel tiene el modo depuración activado"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: HIGH
+      lupa-detail: "Con APP_DEBUG=true, cualquier error enseña al visitante el código, las variables de entorno y a veces las contraseñas de la base de datos."
+
+  - id: lupa.exposicion.django-debug
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/settings.py", "**/settings_*.py", "**/settings/*.py", "**/prod*.py"] }
+    pattern-regex: '(?m)^\s*DEBUG\s*=\s*True\b'
+    message: "Django tiene el modo depuración activado"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: MEDIUM
+      lupa-detail: "Con DEBUG=True, las páginas de error enseñan el código, la configuración y las rutas internas. Solo vale en el ordenador del desarrollador."
+
+  - id: lupa.exposicion.php-errores
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.php", "**/*.ini", "**/.htaccess"] }
+    pattern-regex: '(?im)(?:ini_set\(\s*["'']display_errors["'']\s*,\s*["'']?(?:1|on|true)|^\s*display_errors\s*=\s*On\b|php_flag\s+display_errors\s+on)'
+    message: "PHP enseña los errores al visitante"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: MEDIUM
+      lupa-detail: "Los mensajes de error de PHP revelan rutas del servidor, consultas SQL y versiones, que es justo lo que necesita un atacante para afinar."
+
+  - id: lupa.exposicion.phpinfo
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.php"] }
+    pattern-regex: '(?<![''"\w>])phpinfo\s*\(\s*\)\s*;'
+    message: "Hay una página que enseña toda la configuración del servidor (phpinfo)"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: HIGH
+      lupa-detail: "phpinfo() publica versiones, módulos, rutas y variables de entorno del servidor, a veces con credenciales. No debe existir en un servidor accesible."
+
+  - id: lupa.exposicion.actuator-abierto
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.properties", "**/application*.yml", "**/application*.yaml", "**/bootstrap*.yml"] }
+    pattern-regex: '(?:management\.endpoints\.web\.exposure\.include\s*[=:]\s*["'']?\*|exposure:\s*\r?\n\s*include:\s*["'']?\*)'
+    message: "Spring publica todos los endpoints internos de Actuator"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: HIGH
+      lupa-detail: "Con include=* quedan abiertos /actuator/env, /heapdump y compañía, que sueltan variables de entorno, credenciales y la memoria entera de la aplicación."
+
+  - id: lupa.exposicion.cors-abierto
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.mjs", "**/*.py", "**/*.php", "**/*.java", "**/*.go", "**/*.conf", "**/*.yml", "**/*.yaml"] }
+    pattern-regex: '(?:Access-Control-Allow-Origin["'']?\s*[:,]\s*["'']\*["'']|(?:app|router|server)\.(?:use|options)\([^)\n]*\bcors\(\s*\)|cors\(\s*\{\s*origin\s*:\s*(?:["'']\*["'']|true)|CORS_(?:ORIGIN_)?ALLOW_ALL(?:_ORIGINS)?\s*=\s*True|allowedOrigins\(\s*"\*"\s*\)|header\(\s*["'']Access-Control-Allow-Origin:\s*\*|add_header\s+Access-Control-Allow-Origin\s+["'']?\*)'
+    message: "La API acepta peticiones de cualquier web (CORS abierto)"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: MEDIUM
+      lupa-detail: "Con CORS abierto, cualquier web que visite un usuario puede llamar a esta API desde su navegador. Si además se aceptan cookies o tokens, una web maliciosa puede leer sus datos."
+
+  - id: lupa.exposicion.graphql-abierto
+    languages: [generic]
+    severity: INFO
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.java", "**/*.go", "**/*.yml"] }
+    pattern-regex: '\b(?:introspection|playground|graphiql)\s*[:=]\s*(?:true|True)\b'
+    message: "GraphQL deja ver todo el esquema o abre su consola"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: MEDIUM
+      lupa-detail: "La introspección o la consola de GraphQL en producción le dan al atacante el mapa completo de la API: todos los tipos, campos y operaciones, incluidas las internas."
+
+  - id: lupa.exposicion.docs-api-publicas
+    languages: [generic]
+    severity: INFO
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.py", "**/*.php"] }
+    pattern-regex: '(?:app\.use\(\s*["''][^"'']*(?:api-docs|swagger)[^"'']*["'']\s*,\s*swaggerUi|SwaggerModule\.setup\(|get_swagger_view|SpectacularSwaggerView)'
+    message: "La documentación de la API se publica junto a la API"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: LOW
+      lupa-detail: "Útil en desarrollo, pero en producción enseña cada endpoint y sus parámetros. Confirma que no se activa en el entorno público, o protégela con login."
+
+  - id: lupa.exposicion.listado-directorios
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/*.js", "**/*.ts", "**/*.conf", "**/.htaccess", "**/*.py", "**/nginx*"] }
+    pattern-regex: '(?:serveIndex\(|\bautoindex\s+on\b|Options\s+[^\n]*\+?Indexes\b)'
+    message: "El servidor enseña el listado de ficheros de una carpeta"
+    metadata:
+      category: security
+      lupa-cat: exposicion
+      lupa-severity: MEDIUM
+      lupa-detail: "Con el listado de carpetas activo, cualquiera puede navegar y descargar lo que haya: copias de seguridad, logs, ficheros de configuración."
+
+  - id: lupa.exposicion.bd-puerto-publico
+    languages: [generic]
+    severity: WARNING
+    paths: { include: ["**/docker-compose*.yml", "**/docker-compose*.yaml", "**/compose*.yml", "**/compose*.yaml"] }
+    pattern-regex: '(?m)^(\s*)ports:\s*\r?\n(?:\1\s+-[^\n]*\r?\n)*?\1\s+-\s*["'']?(?:0\.0\.0\.0:)?(?:3306|5432|6379|27017|9200|5984|11211|1433|1521|9042|2379|8086|5672|15672)(?::\d+)?["'']?\s*$'
+    message: "Una base de datos o cola se publica en todas las interfaces de red"
+    metadata:
+      category: security
+      lupa-cat: infra
+      lupa-severity: MEDIUM
+      lupa-detail: "Publicar el puerto así lo abre a toda la red (y a internet si la máquina tiene IP pública). Docker se salta el firewall del sistema. Si solo lo usa esta máquina, publícalo en 127.0.0.1."

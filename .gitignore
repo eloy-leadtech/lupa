@@ -1,0 +1,5 @@
+# salida de Lupa/floorplan si alguien lo lanza sobre el propio repo
+floorplan/
+CLAUDE.local.md
+node_modules/
+*.log

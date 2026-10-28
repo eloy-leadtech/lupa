@@ -1,0 +1,9 @@
+services:
+  db:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+  cache:
+    image: redis
+    ports:
+      - "127.0.0.1:6379:6379"
