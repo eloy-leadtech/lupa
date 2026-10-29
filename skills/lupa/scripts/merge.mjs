@@ -14,6 +14,7 @@ import { toIssues, endpointFindings, makeMapper, findingId, CATS, OUTSIDE_NODE, 
 import { loadAnswers, endpointKey, triageKey } from './lib/review.mjs';
 import { buildReport } from './lib/report.mjs';
 import { deliveryInfo } from './lib/entrega.mjs';
+import { stageSummary } from './lib/cicd.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.join(HERE, '..', 'assets', 'lupa-ui.js');
@@ -28,6 +29,7 @@ const surface = readJSON(path.join(lupaDir, 'superficie.json'), { endpoints: [] 
 const tech = readJSON(path.join(lupaDir, 'tecnologia.json'));
 const datos = readJSON(path.join(lupaDir, 'datos.json'));
 const infra = readJSON(path.join(lupaDir, 'infra.json'));
+const cicdRaw = readJSON(path.join(lupaDir, 'cicd-resumen.json'));
 if (!found) { console.error('No hay floorplan/lupa/hallazgos.json: lanza antes scan.mjs.'); process.exit(2); }
 // el equipo que hace la pasada: se dice una vez con --equipo y se recuerda en ficha.json
 const argv = process.argv.slice(2);
@@ -148,7 +150,9 @@ html = html.replace(/<\/body>(?![\s\S]*<\/body>)/, `<!--lupa:inicio--><script>/*
 html = html.replace(/<title>([^<]*)<\/title>/, (m, t) => `<title>${t.replace(/ · Lupa$/, '')} · Lupa</title>`);
 fs.writeFileSync(path.join(fp, 'index.html'), html);
 // el informe para quien evalúa: un solo HTML, sin nada externo, con la ficha de la pasada y los datos dentro
-const entrega = deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, equipo: ficha.equipo });
+// el camino a producción, con lo que queda después de la criba (los falsos positivos ya no cuentan)
+const cicd = cicdRaw ? { ...cicdRaw, etapas: stageSummary(findings) } : null;
+const entrega = deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, cicd, equipo: ficha.equipo });
 // El mapa del código viaja dentro del informe, comprimido: quien lo recibe no tiene floorplan/ ni Claude Code.
 // La copia va sin la ruta de este equipo (sin ella tampoco salen los enlaces «abrir en el editor») y sin la
 // barra de preguntas, que necesita Claude Code en local y en un fichero entregado solo pediría ejecutar comandos.
@@ -160,7 +164,7 @@ mapCopy = mapCopy.replace(/<\/head>/, '<style>/* Lupa: copia entregada */#ask{di
 // ni los avisos de floorplan que piden «Run the skill again»: quien lo recibe no tiene nada que ejecutar
 mapCopy = mapCopy.replace(/<\/body>(?![\s\S]*<\/body>)/, '<script>new MutationObserver(()=>document.querySelectorAll(".callout").forEach((c)=>{if(/Run the skill/.test(c.textContent))c.remove()})).observe(document.documentElement,{childList:true,subtree:true})</script></body>');
 const mapa = zlib.gzipSync(Buffer.from(mapCopy, 'utf8'), { level: 9 }).toString('base64');
-const report = buildReport({ graph, tech, datos, infra, entrega, mapa });
+const report = buildReport({ graph, tech, datos, infra, cicd, entrega, mapa });
 fs.writeFileSync(path.join(lupaDir, 'informe.html'), report);
 // la copia para mandar lleva el proyecto y la fecha en el nombre, para que no se pisen en el correo
 const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();

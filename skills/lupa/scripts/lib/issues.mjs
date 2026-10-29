@@ -14,6 +14,7 @@ export const CATS = {
   dependencias: 'Librerías con fallos',
   tecnologia: 'Tecnología obsoleta',
   ia: 'Inteligencia artificial',
+  cicd: 'CI/CD y despliegue',
   servidores: 'Servidores por dentro',
   red: 'Red y exposición a internet',
 };
@@ -49,8 +50,8 @@ export function makeMapper(graph) {
   };
 }
 
-// un servidor, la red o un objetivo de internet no tienen líneas: su tarjeta es el propio sitio
-export const INFRA_FILE = /^(servidores|red|internet)\//;
+// un servidor, la red, un objetivo de internet o la plataforma de CI no tienen líneas: su tarjeta es el propio sitio
+export const INFRA_FILE = /^(servidores|red|internet|cicd)\//;
 const lineNote = (f) => (INFRA_FILE.test(f.file) ? f.title : `línea ${f.line}: ${f.title}`);
 
 /** Agrupa por categoría y fichero, para no inundar la lista con cien avisos del mismo sitio. */

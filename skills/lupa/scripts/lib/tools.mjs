@@ -29,7 +29,7 @@ function onPath(name) {
   return r.status === 0 ? r.stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean) : null;
 }
 
-const VERSION_ARGS = { gitleaks: ['version'], semgrep: ['--version'], trivy: ['--version'], claude: ['--version'], git: ['--version'] };
+const VERSION_ARGS = { gitleaks: ['version'], semgrep: ['--version'], trivy: ['--version'], zizmor: ['--version'], claude: ['--version'], git: ['--version'] };
 
 /**
  * En Windows, los .exe que pip genera al instalar (semgrep.exe, pysemgrep.exe) son únicos de cada
@@ -65,6 +65,7 @@ export const INSTALL = {
   gitleaks: { win: 'winget install --id Gitleaks.Gitleaks -e', mac: 'brew install gitleaks', linux: 'https://github.com/gitleaks/gitleaks/releases (binario oficial)' },
   semgrep: { win: 'py -m venv C:\\dev\\tools\\semgrep-venv && C:\\dev\\tools\\semgrep-venv\\Scripts\\pip install semgrep', mac: 'brew install semgrep', linux: 'pipx install semgrep' },
   trivy: { win: 'winget install --id AquaSecurity.Trivy -e', mac: 'brew install trivy', linux: 'https://aquasecurity.github.io/trivy (paquete oficial)' },
+  zizmor: { win: 'https://github.com/zizmorcore/zizmor/releases (binario oficial)', mac: 'brew install zizmor', linux: 'pipx install zizmor' },
 };
 
 export function installHint(name) {
@@ -73,5 +74,5 @@ export function installHint(name) {
 }
 
 export function findAll() {
-  return Object.fromEntries(['git', 'gitleaks', 'semgrep', 'trivy'].map((n) => [n, findTool(n)]));
+  return Object.fromEntries(['git', 'gitleaks', 'semgrep', 'trivy', 'zizmor'].map((n) => [n, findTool(n)]));
 }

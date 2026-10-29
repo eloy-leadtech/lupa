@@ -29,7 +29,7 @@ function pendingReview(dir) {
   return { endpoints: e, hallazgos: h };
 }
 
-export function deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, equipo }) {
+export function deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, cicd = null, equipo }) {
   const git = (dir, args) => run('git', ['-C', dir, ...args], { timeout: 30_000 }).stdout.trim();
   const repos = (graph.meta?.repos || []).map((r) => {
     const dir = path.join(root, r.path || '.');
@@ -46,6 +46,10 @@ export function deliveryInfo({ root, graph, found, answers, endpoints, discarded
     ...((infra?.sinAuditar || []).length ? [`${infra.sinAuditar.length} servidores sin auditar por dentro`] : []),
     ...(infra && !infra.externo ? ['sin vista desde internet'] : []),
     ...(!infra ? ['sin servidores ni red'] : []),
+    // el CI/CD: si hay pipelines, la plataforma tiene que estar revisada, y con credenciales
+    ...(cicd?.ficheros && !cicd.revisadoPorFuera ? ['sin revisar la plataforma de CI/CD'] : []),
+    ...(cicd?.plataformas || []).filter((p) => p.error).map((p) => `${p.repo}: plataforma sin revisar (${p.error})`),
+    ...((cicd?.plataformas || []).some((p) => (p.huecos || []).length) ? [`${(cicd.plataformas || []).reduce((a, p) => a + (p.huecos || []).length, 0)} cosas de la plataforma sin ver por permisos`] : []),
     ...repos.filter((r) => r.sinCommitear).map((r) => `${r.nombre}: ${r.sinCommitear} cambios sin commitear`),
   ];
   const quien = git(root, ['config', 'user.name']) || os.userInfo().username;
@@ -54,6 +58,7 @@ export function deliveryInfo({ root, graph, found, answers, endpoints, discarded
     equipo: equipo || '', proyecto: graph.project?.name || path.basename(root), quien, email: git(root, ['config', 'user.email']), generado: new Date().toISOString(),
     repos, herramientas: found.herramientas || {}, faltan,
     revision: { endpoints: reviewed, endpointsTotal: endpoints.length, cribados: answers.findings.size, pendientes: pend.hallazgos, descartados: discarded.length },
+    cicd: cicd ? { sistemas: (cicd.sistemas || []).map((s) => s.nombre), plataformas: (cicd.plataformas || []).map((p) => `${p.plataforma}:${p.repo}`), revisadoPorFuera: !!cicd.revisadoPorFuera } : null,
     servidores: { revisados: infra?.servidores?.length || 0, sinAuditar: (infra?.sinAuditar || []).map((x) => x.nombre), externo: infra?.externo ? { desde: infra.externo.desde, objetivos: infra.externo.objetivos.length } : null },
     huecos, completo: !huecos.length,
   };

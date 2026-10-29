@@ -1,6 +1,6 @@
 {
   "name": "lupa",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Auditoría de seguridad de todo un proyecto, código e infraestructura: secretos (con historial de git), fallos de código, librerías con CVE, Terraform/Docker/Kubernetes/Jenkins, datos personales y endpoints revisados por Claude; cada servidor por dentro, cómo se comunican y qué se ve desde internet. Deja un único informe HTML para mandar al equipo de seguridad.",
   "author": {
     "name": "Eloy Bandín (RedSec)"
@@ -18,7 +18,11 @@
     "servidores",
     "red",
     "vps",
-    "infraestructura"
+    "infraestructura",
+    "ci",
+    "cd",
+    "github-actions",
+    "bitbucket"
   ],
   "skills": [
     "./skills/lupa",

@@ -1,10 +1,10 @@
 {
   "name": "lupa",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Lupa, un plugin de Claude Code. Sin dependencias: este fichero solo da un hogar a «npm test».",
-  "engines": { "node": ">=18" },
+  "engines": { "node": ">=20" },
   "scripts": {
-    "test": "node --test tests/lupa.test.mjs tests/instalar.test.mjs tests/infra.test.mjs"
+    "test": "node --test tests/lupa.test.mjs tests/instalar.test.mjs tests/infra.test.mjs tests/cicd.test.mjs"
   }
 }

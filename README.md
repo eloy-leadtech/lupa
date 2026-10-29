@@ -1,14 +1,15 @@
 # Lupa
 
-**La auditoría de seguridad de un proyecto entero (su código, sus servidores y lo que se ve desde internet) que cada equipo hace por su cuenta en una sesión y entrega en un solo fichero.**
+**La auditoría de seguridad de un proyecto entero (su código, su camino a producción, sus servidores y lo que se ve desde internet) que cada equipo hace por su cuenta en una sesión y entrega en un solo fichero.**
 
 ## En resumen
 
 **El problema.** Cada equipo tiene su código, sus servidores y su forma de desplegar. Saber cómo está cada uno en seguridad exige hoy que alguien de seguridad audite proyecto a proyecto, y eso no escala.
 
-**Qué hace Lupa.** El propio equipo la lanza desde Claude Code sobre su proyecto. Lupa combina tres escáneres de código abierto reconocidos (gitleaks, Semgrep y Trivy) con comprobaciones propias y con la revisión de Claude, que lee cada endpoint y descarta los falsos positivos. Mira tres cosas:
+**Qué hace Lupa.** El propio equipo la lanza desde Claude Code sobre su proyecto. Lupa combina tres escáneres de código abierto reconocidos (gitleaks, Semgrep y Trivy) con comprobaciones propias y con la revisión de Claude, que lee cada endpoint y descarta los falsos positivos. Mira cuatro cosas:
 
 - **El código:** secretos (también en el historial de git), fallos de seguridad, librerías con vulnerabilidades conocidas (y cuáles se están explotando ya en el mundo real), datos personales, apps con IA y cada endpoint de la API.
+- **El camino a producción (CI/CD):** si la rama principal está protegida y los cambios se revisan de verdad, qué permisos y secretos tiene el pipeline y si se le escapan en los logs, y con qué credenciales entra en la nube. Detecta sola si el equipo usa GitHub o Bitbucket y mide los dos con los mismos criterios.
 - **Los servidores:** uno a uno por dentro, en solo lectura (parches, accesos, contenedores, secretos en disco, vigilancia), y cómo se comunican entre ellos.
 - **La exposición:** qué se ve desde internet y qué no debería verse.
 
@@ -32,9 +33,11 @@ El equipo lo manda al equipo de seguridad. Se abre con doble clic, sin instalar 
 flowchart LR
   D["Equipo de desarrollo"] -->|"/lupa en Claude Code"| L["Lupa"]
   L --> C["Código del repositorio"]
+  L --> P["CI/CD y despliegue<br/>(GitHub o Bitbucket)"]
   L --> S["Servidores del proyecto<br/>(solo lectura)"]
   L --> I["Vista desde internet"]
   C --> R["Informe + mapa del código<br/>un solo fichero HTML"]
+  P --> R
   S --> R
   I --> R
   R -->|"Teams o correo"| SEC["Equipo de seguridad"]
@@ -61,7 +64,7 @@ flowchart LR
 - **No sustituye a un pentest:** no prueba ataques reales.
 - **Es una foto de un momento:** conviene repetirla, por ejemplo cada trimestre o antes de un lanzamiento importante.
 
-**Estado:** versión 0.3, probada sobre la infraestructura real del equipo de seguridad (su repositorio de infraestructura como código y sus servidores).
+**Estado:** versión 0.4, probada sobre la infraestructura real del equipo de seguridad (su repositorio de infraestructura como código y sus servidores).
 
 ---
 
@@ -108,6 +111,7 @@ Un usuario te ha dado esta dirección para auditar la seguridad de su proyecto. 
 | **Secretos** | gitleaks, en el código y en **todo el historial de git** |
 | **Fallos de código** | Semgrep (OWASP Top 10, inyecciones, XSS, criptografía débil…) |
 | **Librerías con fallos** | Trivy: CVE de npm, pip, composer, Maven, Go… |
+| **CI/CD y despliegue** | El camino del código a producción en cinco etapas. **Pipelines** de cualquier plataforma: zizmor para GitHub Actions (inyección en scripts, permisos de más, acciones sin fijar, `pull_request_target`…) y reglas comunes para Bitbucket Pipelines, GitLab, Jenkins, Azure y CircleCI (scripts de internet ejecutados a ciegas, SSH sin comprobar el servidor, TLS desactivado, claves fijas de la nube, secretos impresos). **La plataforma** (GitHub, Bitbucket Cloud o Bitbucket Server, detectada sola): si la rama principal está protegida, cuántos cambios se revisaron de verdad, permisos del CI, secretos y variables sin proteger, si producción pide aprobación, runners, claves de despliegue, webhooks, alertas y **secretos en los logs** de las últimas ejecuciones. **La nube**: roles en los que confía el CI (OIDC sin limitar el repositorio, permisos de administrador) y claves fijas viejas |
 | **Despliegue como código** | Trivy para Terraform, Dockerfile, Kubernetes y Helm. Reglas propias para **Jenkins** (credenciales interpoladas o impresas en el log, `curl \| sh`, TLS desactivado, contenedores privilegiados) y docker-compose (bases de datos abiertas a la red) |
 | **Cada servidor por dentro** | Un script de solo lectura en cada servidor del proyecto: parches de seguridad pendientes, si se actualiza solo (y si de verdad funciona), sistema sin soporte, SSH con contraseña o root, cuentas con poder de root, puertos de bases de datos y paneles abiertos en todas las interfaces, contenedores privilegiados, con el socket de Docker o como root, secretos en disco legibles por cualquiera y si hay agente de detección (Wazuh, EDR…) |
 | **Cómo se comunican** | Las conexiones reales entre servidores, vistas desde los dos extremos: quién habla con quién, por qué puerto, qué va sin cifrar, qué IP internas nadie sabe qué son. En AWS, además, qué dejan pasar los grupos de seguridad y los balanceadores |
@@ -126,7 +130,7 @@ Claude además **criba los falsos positivos**: los quita del mapa, pero los deja
 
 Normalmente no hace falta: `/lupa` lo hace contigo. Lo necesario:
 
-1. Node 18 o superior y Claude Code, con la **cuenta de Leadtech**.
+1. Node 20 o superior y Claude Code, con la **cuenta de Leadtech**.
 2. Los escáneres. `node skills/lupa/scripts/doctor.mjs --instalar` descarga las versiones fijadas en `skills/lupa/herramientas.json` (gitleaks, Trivy, Semgrep) en `~/.cache/lupa/bin`, comprueba el SHA-256 de cada fichero y no toca el sistema. Semgrep necesita Python 3.10 o superior. También valen los del sistema:
 
    | | Windows | Mac | Linux |
@@ -149,6 +153,7 @@ Cada pasada deja **`floorplan/lupa/informe.html`** y su copia para mandar, **`lu
 - **Lo urgente**, por orden.
 - **La superficie de ataque:** los endpoints abiertos que no deberían, con lo que sueltan.
 - **Servidores y red:** cada servidor por dentro, el diagrama de cómo se comunican, las puertas a internet y lo que se vio desde fuera.
+- **CI/CD y despliegue:** el camino del código a producción (código → pipeline → credenciales → artefactos → destino), cada etapa del color de lo peor que tiene, y la plataforma de cada repositorio.
 - **Las librerías explotadas (KEV)**, diciendo si la app está expuesta.
 - **La tecnología**, con su ciclo de vida.
 - **El mapa de datos personales.**
@@ -167,6 +172,11 @@ Dentro del HTML van también **los datos en JSON** (`<script id="lupa-datos">`),
 - **endoflife.date, CISA KEV y FIRST EPSS:** catálogos públicos, con caché de un día en `~/.cache/lupa`. Solo se envían números de CVE.
 - **Servidores:** la foto se toma en cada servidor y vuelve a tu equipo (con SSM, por la API de AWS de vuestra cuenta). De las IP públicas que se conectan a un servidor solo se guarda cuántas son.
 - **Vista desde internet:** conexiones y peticiones normales a los objetivos del proyecto, y una consulta a checkip.amazonaws.com para saber desde qué IP se mira.
+- **CI/CD:**
+  - lecturas a la API de GitHub o Bitbucket con la sesión del propio dev;
+  - zizmor consulta a GitHub las acciones que usan los workflows;
+  - los logs de las últimas ejecuciones se descargan a una carpeta temporal, se pasan por gitleaks y se borran. De cada secreto solo queda la regla, la ejecución y el paso.
+  - Con `--aws`, lecturas de IAM en la cuenta.
 - **La revisión de Claude:** el código que revisa va a Anthropic con la cuenta que uses. **Usa siempre la de la empresa.**
 
 Todo lo que genera Lupa se queda en `floorplan/`, que se ignora a sí misma en git.

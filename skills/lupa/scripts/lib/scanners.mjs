@@ -86,7 +86,8 @@ export function runSemgrep(tool, root, { rulesFile, packs = SEMGREP_PACKS, log =
     const file = relTo(root, x.path);
     const rule = checkId.split('.').pop();
     // las reglas de CI (GitHub Actions, GitLab…) son cadena de suministro del despliegue, no fallos del código
-    const cat = own ? m['lupa-cat'] : /^yaml\.(github-actions|gitlab)|\.ci\.|dockerfile\./i.test(checkId) ? 'infra' : 'codigo';
+    // los pipelines (GitHub Actions, GitLab y las reglas propias lupa.ci/lupa.jenkins) son CI/CD; Dockerfile y servidores, infra
+    const cat = /^lupa\.(ci|jenkins)\./.test(checkId) || /^yaml\.(github-actions|gitlab)|\.ci\./i.test(checkId) ? 'cicd' : own ? m['lupa-cat'] : /dockerfile\./i.test(checkId) ? 'infra' : 'codigo';
     let severity = softenInTests(normSeverity(m['lupa-severity'] || x.extra?.severity), file);
     // una cadena de conexión a localhost o a un contenedor local suele ser de desarrollo: se avisa, pero menor.
     // La línea se mira aquí y no se guarda, porque lleva la contraseña.

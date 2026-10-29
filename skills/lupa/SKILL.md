@@ -63,13 +63,34 @@ No es un servidor: es **toda la infraestructura que usa el proyecto** (servidore
 
 Si el proyecto no tiene servidores propios (todo en un PaaS o serverless), sáltate a) y b), haz c) con sus dominios y dilo en el informe.
 
+**d) El CI/CD.** Cómo llega el código a producción. Los ficheros de pipeline del repo se miran en el escaneo, sean de la plataforma que sean (zizmor para GitHub Actions y reglas comunes para Bitbucket Pipelines, GitLab, Jenkins, Azure o CircleCI). La plataforma se mira aparte:
+
+`node ${CLAUDE_SKILL_DIR}/scripts/cicd.mjs <raíz>`
+
+- Detecta sola la plataforma de cada repo por su remoto: GitHub, Bitbucket Cloud o Bitbucket Server/Data Center. Las tres se miden con las mismas reglas:
+  - la rama principal: si está protegida y si en la práctica se revisa antes de mergear;
+  - los permisos del CI y sus secretos (solo sus nombres y si están protegidos);
+  - si producción pide aprobación;
+  - los runners, las claves de despliegue y los webhooks;
+  - las alertas de la plataforma;
+  - los secretos impresos en los logs de las últimas ejecuciones (`--logs 15` por defecto, `--sin-logs` para no mirarlos).
+- **Credenciales, solo de lectura y en variables de entorno** (nunca en el chat):
+  - GitHub: la sesión de `gh auth login` o `GH_TOKEN`. En GitHub Enterprise, además, `GH_HOST=<host>` (o `GH_ENTERPRISE_TOKEN`).
+  - Bitbucket Cloud: `BITBUCKET_EMAIL` y `BITBUCKET_API_TOKEN` (un token de API de Atlassian, con el email de la cuenta; las contraseñas de aplicación ya no funcionan).
+  - Bitbucket Server/Data Center: `BITBUCKET_SERVER_URL` (su dirección web) y `BITBUCKET_SERVER_TOKEN`. El token solo se manda a ese host, nunca al que diga un remoto.
+
+  Los logs se descargan de uno en uno a una carpeta temporal del usuario, se pasan por gitleaks y se borran, también si el proceso se corta. El comando tiene un plazo total de unos 8 minutos para los logs: si no da tiempo, queda como hueco.
+
+  Sin ser administrador del repositorio hay cosas que no se ven: quedan como huecos en el informe.
+- `--aws` mira además, en solo lectura, los roles de AWS en los que confía el CI (OIDC) y los usuarios de CI con claves. Úsalo si despliegan en AWS y el usuario tiene acceso a la cuenta. **Pide permiso antes** de descargar los logs y de mirar AWS.
+
 ## 3. Escaneo
 
 `node ${CLAUDE_SKILL_DIR}/scripts/scan.mjs <raíz>`
 
 Tarda de segundos a unos minutos; Semgrep es lo lento. Escribe `floorplan/lupa/hallazgos.json`, `superficie.json`, `infra.json` (si hay servidores, red o vista externa) y los lotes de revisión en `floorplan/lupa/revision/`. Lo ya revisado en pasadas anteriores se guarda en `lote-00.json` y no se vuelve a pedir.
 
-`--solo gitleaks,semgrep,trivy,propios` lanza solo esas partes y conserva lo demás de la pasada anterior. Los servidores, la red y la vista externa se recalculan siempre a partir de lo recogido en el paso 2: tras recoger de nuevo, basta `--solo propios`.
+`--solo gitleaks,semgrep,trivy,zizmor,propios` lanza solo esas partes y conserva lo demás de la pasada anterior. Los servidores, la red, la vista externa y la plataforma de CI/CD se recalculan siempre a partir de lo recogido en el paso 2: tras recoger de nuevo, basta `--solo propios`.
 
 ## 4. Revisión (siempre)
 
