@@ -20,6 +20,8 @@ import { dataMap, dataFindings, aiFiles } from './lib/datamap.mjs';
 import { loadServers, serverFindings, serverSummary } from './lib/servidores.mjs';
 import { networkModel, exposure, networkFindings } from './lib/red.mjs';
 import { externalFindings } from './lib/externo.mjs';
+import { detectCi, runZizmor, ciLineFindings, deployModel, oidcTerraformFindings, platformFindings, awsCiFindings } from './lib/cicd.mjs';
+import { credentials } from './lib/plataforma.mjs';
 import crypto from 'node:crypto';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +31,7 @@ const RULES = path.join(HERE, '..', 'rules', 'lupa.yml');
 const argv = process.argv.slice(2);
 const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; };
 const root = path.resolve(argv.find((a, i) => !a.startsWith('--') && !argv[i - 1]?.startsWith('--solo')) || '.');
-const only = (opt('--solo') || 'gitleaks,semgrep,trivy,propios').split(',');
+const only = (opt('--solo') || 'gitleaks,semgrep,trivy,zizmor,propios').split(',');
 const outDir = path.join(root, 'floorplan', 'lupa');
 const logLines = [];
 const log = (m) => { logLines.push(m); console.error('  · ' + m); };
@@ -66,7 +68,18 @@ let packages = null;
 step('gitleaks', () => (tools.gitleaks ? runGitleaks(tools.gitleaks, root, repos, log) : []));
 step('semgrep', () => (tools.semgrep ? runSemgrep(tools.semgrep, root, { rulesFile: RULES, packs: argv.includes('--sin-paquetes') ? [] : undefined, log }) : []));
 step('trivy', () => { if (!tools.trivy) return []; const r = runTrivy(tools.trivy, root, log, { unlocked: unlocked.map((f) => f.file) }); packages = r.packages; return r.findings; });
-step('propios', () => [...sensitiveFiles(files, root), ...personalData(root, files), ...unlocked]);
+// CI/CD: zizmor para GitHub Actions (con el token de gh, si hay, hace también las comprobaciones en línea) y reglas
+// comunes para los pipelines de cualquier plataforma, más la confianza OIDC del Terraform del CI
+const ci = detectCi(files);
+// los repos donde zizmor dio un resultado válido: solo ahí se dejan de contar los avisos de GitHub Actions de Semgrep
+let zizmorOk = new Set();
+step('zizmor', () => {
+  if (!tools.zizmor || !ci.sistemas.some((x) => x.ci === 'github-actions')) return [];
+  const z = runZizmor(tools.zizmor, root, repos, { token: (credentials('github')?.authorization || '').replace(/^Bearer /, ''), log });
+  zizmorOk = z.ok;
+  return z.findings;
+});
+step('propios', () => [...sensitiveFiles(files, root), ...personalData(root, files), ...unlocked, ...ciLineFindings(root, ci.ficheros), ...oidcTerraformFindings(root, files)]);
 // la lista de paquetes se guarda: con --solo sin Trivy se reutiliza la de la pasada anterior
 if (packages) writeJSON(path.join(outDir, 'paquetes.json'), packages);
 else packages = readJSON(path.join(outDir, 'paquetes.json'), []);
@@ -81,10 +94,10 @@ if (ignored.length) {
 }
 
 // con --solo se conserva lo que encontraron en la pasada anterior las herramientas que no se lanzan ahora
-const TOOL_OF = { gitleaks: 'gitleaks', semgrep: 'semgrep', trivy: 'trivy', propios: 'lupa' };
+const TOOL_OF = { gitleaks: ['gitleaks'], semgrep: ['semgrep'], trivy: ['trivy'], zizmor: ['zizmor'], propios: ['lupa', 'lupa-ci'] };
 const prevRun = readJSON(path.join(outDir, 'hallazgos.json'));
 if (prevRun && only.length < Object.keys(TOOL_OF).length) {
-  const ran = new Set(only.map((s) => TOOL_OF[s]));
+  const ran = new Set(only.flatMap((s) => TOOL_OF[s] || []));
   const kept = prevRun.hallazgos.filter((f) => !ran.has(f.tool));
   findings.push(...kept);
   Object.assign(versions, Object.fromEntries(Object.entries(prevRun.herramientas || {}).filter(([n]) => !versions[n])));
@@ -163,6 +176,31 @@ if (servers.length || awsNet || ext) {
       puertos: (t.puertos || []).map((p) => ({ puerto: p.puerto, servicio: p.servicio, tls: p.tls ? { valido: p.tls.valido, caduca: p.tls.caduca, dias: p.tls.dias, emisor: p.tls.emisor, protocolo: p.tls.protocolo } : null, http: p.http ? { estado: p.http.estado, titulo: p.http.titulo } : null })) })) } : null,
   });
   console.log(`  infra     ${String(servers.length).padStart(5)} servidores por dentro · ${netModel.edges.length} conexiones · ${exposed.length} puertas a internet · vista externa: ${ext ? `${ext.objetivos.length} objetivos` : 'sin hacer'} (${infraF.length} avisos)`);
+}
+
+// ---------------------------------------------------------------- CI/CD y despliegue
+// La plataforma (GitHub, Bitbucket), los logs y los roles de AWS vienen de cicd.mjs y se recalculan siempre.
+// Lo de GitHub Actions lo cuenta zizmor con más contexto: si ha corrido, Semgrep no lo repite.
+const CICD_TOOLS = new Set(['lupa-plataforma', 'lupa-aws']);
+findings = findings.filter((f) => !CICD_TOOLS.has(f.tool));
+// (con --solo sin zizmor, cuentan los repos con hallazgos suyos conservados de la pasada anterior)
+for (const f of findings.filter((x) => x.tool === 'zizmor')) zizmorOk.add(repoOf(f.file));
+findings = findings.filter((f) => !(/^yaml\.github-actions\./.test(f.rule) && zizmorOk.has(repoOf(f.file))));
+const cicd = readJSON(path.join(outDir, 'cicd.json'));
+const despliegue = deployModel(root, ci.ficheros);
+// cada repositorio se mide con sus propios pipelines: un runner propio en el repo A no es un aviso para el B
+const pipelinesOf = (ruta) => ci.ficheros.filter((f) => repoOf(f.fichero) === (ruta || '.'));
+const cicdF = [...(cicd?.plataformas || []).flatMap((p) => platformFindings(p, deployModel(root, pipelinesOf(p.ruta)))), ...awsCiFindings(cicd?.aws)].map((f) => ({ ...f, clave: f.clave || f.title }));
+findings.push(...cicdF);
+if (ci.ficheros.length || cicd) {
+  // las etapas del camino a producción se cuentan en merge.mjs, después de la criba de la IA
+  writeJSON(path.join(outDir, 'cicd-resumen.json'), {
+    generadoEn: new Date().toISOString(), sistemas: ci.sistemas, ficheros: ci.ficheros.length, despliegue, revisadoPorFuera: !!cicd,
+    plataformas: (cicd?.plataformas || []).map((p) => ({ plataforma: p.plataforma, repo: p.repo, privado: p.privado, rama: p.ramaPrincipal, proteccion: p.proteccion, revisionReal: p.revisionReal,
+      entornos: p.entornos || [], secretos: (p.secretos || []).length, logs: p.logs || null, huecos: p.huecos || [], error: p.error || null })),
+    aws: cicd?.aws ? { cuenta: cicd.aws.cuenta || null, roles: (cicd.aws.roles || []).length, error: cicd.aws.error || null } : null,
+  });
+  console.log(`  cicd      ${String(ci.ficheros.length).padStart(5)} pipelines (${ci.sistemas.map((x) => x.nombre).join(', ') || 'ninguno'}) · plataforma: ${cicd ? (cicd.plataformas || []).map((p) => p.plataforma).join(', ') : 'sin revisar (cicd.mjs)'} · ${findings.filter((x) => x.cat === 'cicd').length} avisos`);
 }
 
 // el mismo aviso visto dos veces (dos reglas, o la misma con varias coincidencias) cuenta una vez

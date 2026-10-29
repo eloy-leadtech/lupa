@@ -8,6 +8,7 @@ import { infraSection } from './report-infra.mjs';
 import { deliverySection, deliveryData } from './entrega.mjs';
 import { INFRA_FILE } from './issues.mjs';
 import { MAP_CSS, mapNav, mapPanel } from './report-mapa.mjs';
+import { cicdSection, CICD_CSS } from './report-cicd.mjs';
 
 const RANK = { alta: 0, media: 1, baja: 2 };
 
@@ -49,7 +50,7 @@ export function score({ kevExpuestas, kevOtras, endpointsGraves, graves, aMirar,
   return { n, letra, quita };
 }
 
-export function buildReport({ graph, tech, datos, infra = null, entrega = null, mapa = null, generado = new Date() }) {
+export function buildReport({ graph, tech, datos, infra = null, cicd = null, entrega = null, mapa = null, generado = new Date() }) {
   const L = graph.lupa || {};
   const issues = graph.health?.issues || [];
   const lupaIssues = issues.filter((i) => String(i.id).startsWith('lupa:'));
@@ -214,6 +215,7 @@ footer{color:var(--muted);font-size:12px;margin-top:22px}
 @media (max-width:720px){.hero,.grid2{grid-template-columns:1fr}.bar-row{grid-template-columns:110px 1fr}.t{font-size:12.5px}section{padding:16px}}
 @media print{:root{color-scheme:light}body{background:#fff}section{break-inside:avoid;border-color:#ddd}#tip,details summary{display:none}details>*{display:block}}
 ${mapa ? MAP_CSS : ''}
+${cicd ? CICD_CSS : ''}
 </style></head><body>${mapNav(mapa)}<main>
 <header><div class="k">Lupa · informe de seguridad</div><h1>${esc(graph.project?.name || 'Proyecto')}</h1>
 <div class="meta">${esc(generado.toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' }))} &nbsp;|&nbsp; ${repoLine || '—'}</div>${deliverySection(ent,'cabecera')}</header>
@@ -245,6 +247,7 @@ ${mapa ? '<p><button type="button" class="link" data-abre-mapa>Abrir el mapa int
 <table class="t"><thead><tr><th></th><th>Endpoint</th><th>Acceso</th><th>App</th><th>Qué pasa</th></tr></thead><tbody>${withIssues.slice(0, 50).map((e) => `<tr><td>${pill(SEV[{ alta: 'high', media: 'medium', baja: 'low' }[e.severidad]])}</td><td><code>${esc(e.metodo)} ${esc(e.ruta)}</code></td><td>${e.publico === true ? `Sin login${e.deberiaSerPublico === false ? '<div class="sub">y no debería</div>' : ''}` : e.publico === false ? 'Con login' : 'Dudoso'}</td><td>${esc(appName(e.fichero))}</td><td>${esc(e.motivo)}${e.datos?.length ? `<div class="sub">Suelta: ${esc(e.datos.join(', '))}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5">Ninguno.</td></tr>'}</tbody></table>${withIssues.length > 50 ? `<p class="sub">y ${withIssues.length - 50} más en el mapa.</p>` : ''}</section>
 
 ${infraSection(infra, lupaIssues)}
+${cicdSection(cicd)}
 <section><h2>Librerías con fallos que se están explotando (KEV)</h2><p class="lead">CVE que el catálogo KEV de la CISA da como explotados en ataques reales. «Expuesta» quiere decir que esa app tiene endpoints que cualquiera puede llamar. EPSS es la probabilidad de explotación en 30 días, en percentil.</p>
 <table class="t"><thead><tr><th>Librería</th><th>CVE</th><th>App</th><th>Expuesta</th><th>EPSS</th><th>Arreglo</th></tr></thead><tbody>${kevRows.map((k) => `<tr><td>${esc(k.paquete)} <span class="sub">${esc(k.version)}</span>${k.ransomware ? '<div class="sub">usada en ransomware</div>' : ''}</td><td><code>${esc(k.cves.join(', '))}</code></td><td>${esc(k.app)}</td><td>${k.expuesta ? pill(SEV.high).replace('Grave', 'Sí') : pill(STATE.desconocido).replace('Sin datos', 'No consta')}</td><td class="num">${k.epss ? Math.round(k.epss * 100) + '%' : '—'}</td><td>${esc(k.arreglo || 'sin versión arreglada')}</td></tr>`).join('') || '<tr><td colspan="6">Ninguna librería con CVE del catálogo KEV.</td></tr>'}</tbody></table>
 <p class="sub">${fmt(depIssues.length)} ficheros de dependencias con avisos en total.</p></section>

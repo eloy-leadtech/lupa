@@ -8,7 +8,7 @@ import { findAll, installHint } from './lib/tools.mjs';
 import { installTools, toolsHome, MANIFEST, isPinned } from './lib/install.mjs';
 
 const [major] = process.versions.node.split('.').map(Number);
-console.log(`node      ${process.versions.node}${major < 18 ? '  ⚠ hace falta Node 18 o más' : ''}`);
+console.log(`node      ${process.versions.node}${major < 20 ? '  ⚠ hace falta Node 20 o más' : ''}`);
 let tools = findAll();
 
 if (process.argv.includes('--instalar')) {
