@@ -1,9 +1,27 @@
 {
   "name": "lupa",
-  "version": "0.2.0",
-  "description": "Auditoría visual de seguridad de todo un proyecto: secretos (con historial de git), fallos de código, librerías con CVE, Terraform/Docker/Kubernetes/Jenkins, configuraciones expuestas, datos personales y todos los endpoints revisados por Claude, pintado como mapa de calor sobre un mapa de floorplan.",
-  "author": { "name": "Eloy Bandín (RedSec)" },
+  "version": "0.3.0",
+  "description": "Auditoría de seguridad de todo un proyecto, código e infraestructura: secretos (con historial de git), fallos de código, librerías con CVE, Terraform/Docker/Kubernetes/Jenkins, datos personales y endpoints revisados por Claude; cada servidor por dentro, cómo se comunican y qué se ve desde internet. Deja un único informe HTML para mandar al equipo de seguridad.",
+  "author": {
+    "name": "Eloy Bandín (RedSec)"
+  },
   "license": "UNLICENSED",
-  "keywords": ["seguridad", "auditoria", "sast", "secretos", "terraform", "jenkins", "endpoints", "floorplan"],
-  "skills": ["./skills/lupa", "./skills/floorplan"]
+  "keywords": [
+    "seguridad",
+    "auditoria",
+    "sast",
+    "secretos",
+    "terraform",
+    "jenkins",
+    "endpoints",
+    "floorplan",
+    "servidores",
+    "red",
+    "vps",
+    "infraestructura"
+  ],
+  "skills": [
+    "./skills/lupa",
+    "./skills/floorplan"
+  ]
 }
