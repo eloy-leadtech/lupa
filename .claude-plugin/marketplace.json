@@ -1,12 +1,16 @@
 {
   "name": "lupa",
-  "owner": { "name": "Eloy Bandín (RedSec)" },
-  "metadata": { "description": "Lupa: auditoría visual de seguridad para Claude Code." },
+  "owner": {
+    "name": "Eloy Bandín (RedSec)"
+  },
+  "metadata": {
+    "description": "Lupa: auditoría visual de seguridad para Claude Code."
+  },
   "plugins": [
     {
       "name": "lupa",
       "source": "./",
-      "description": "Encuentra los puntos débiles de todo un proyecto (código, servidores, endpoints, datos) y los pinta sobre su mapa.",
+      "description": "Encuentra los puntos débiles de todo un proyecto (código, servidores, red, endpoints, datos) y deja un informe para mandar.",
       "category": "security"
     }
   ]

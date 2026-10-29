@@ -3,23 +3,13 @@
 // superficie de ataque, los CVE explotados (KEV), la tecnología con su ciclo de vida y el mapa de
 // datos personales. Se lee igual en claro y en oscuro, y se imprime a PDF desde el navegador.
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const SEV = {
-  high: { word: 'Grave', css: 'crit', icon: '▲' },
-  medium: { word: 'A mirar', css: 'serious', icon: '◆' },
-  low: { word: 'Menor', css: 'warn', icon: '●' },
-};
-const STATE = {
-  'sin-soporte': { word: 'Sin soporte', css: 'crit', icon: '▲' },
-  'caduca-pronto': { word: 'Caduca pronto', css: 'serious', icon: '◆' },
-  'sin-mantenimiento': { word: 'Sin mantenimiento', css: 'serious', icon: '◆' },
-  desactualizado: { word: 'Desactualizado', css: 'warn', icon: '●' },
-  'al-dia': { word: 'Con soporte', css: 'good', icon: '✓' },
-  desconocido: { word: 'Sin datos', css: 'muted', icon: '·' },
-};
+import { esc, SEV, STATE, pill, fmt, tile } from './report-ui.mjs';
+import { infraSection } from './report-infra.mjs';
+import { deliverySection, deliveryData } from './entrega.mjs';
+import { INFRA_FILE } from './issues.mjs';
+import { MAP_CSS, mapNav, mapPanel } from './report-mapa.mjs';
+
 const RANK = { alta: 0, media: 1, baja: 2 };
-const pill = (s) => `<span class="pill ${s.css}"><span aria-hidden="true">${s.icon}</span> ${esc(s.word)}</span>`;
-const fmt = (n) => Number(n || 0).toLocaleString('es-ES');
 
 /** Squarified treemap (Bruls et al.): rectángulos lo más cuadrados posible. */
 function squarify(items, x, y, w, h) {
@@ -43,11 +33,13 @@ function squarify(items, x, y, w, h) {
 }
 
 /** Nota de 0 a 100 y su letra. La fórmula va escrita en el propio informe. */
-export function score({ kevExpuestas, kevOtras, endpointsGraves, graves, aMirar, sinSoporte }) {
+export function score({ kevExpuestas, kevOtras, endpointsGraves, graves, aMirar, sinSoporte, expuestoInternet = 0, servidoresGraves = 0 }) {
   const quita = [
     ['CVE explotadas (KEV) en apps expuestas', Math.min(36, 12 * kevExpuestas)],
     ['Otras CVE explotadas (KEV)', Math.min(18, 6 * kevOtras)],
     ['Endpoints graves abiertos que no deberían', Math.min(24, 4 * endpointsGraves)],
+    ['Acceso remoto, bases de datos o paneles abiertos a internet', Math.min(24, 8 * expuestoInternet)],
+    ['Servidores con fallos graves (parches, secretos, sistema sin soporte…)', Math.min(15, 3 * servidoresGraves)],
     ['Otros avisos graves', Math.min(30, 2 * graves)],
     ['Avisos a mirar', Math.min(15, Math.round(aMirar / 2))],
     ['Runtimes, frameworks y bases de datos sin soporte', Math.min(15, 3 * sinSoporte)],
@@ -57,7 +49,7 @@ export function score({ kevExpuestas, kevOtras, endpointsGraves, graves, aMirar,
   return { n, letra, quita };
 }
 
-export function buildReport({ graph, tech, datos, generado = new Date() }) {
+export function buildReport({ graph, tech, datos, infra = null, entrega = null, mapa = null, generado = new Date() }) {
   const L = graph.lupa || {};
   const issues = graph.health?.issues || [];
   const lupaIssues = issues.filter((i) => String(i.id).startsWith('lupa:'));
@@ -65,7 +57,9 @@ export function buildReport({ graph, tech, datos, generado = new Date() }) {
   const fileNode = new Map(graph.files.map((f) => [f.p, f.n]));
   const repos = (graph.meta?.repos || []).filter((r) => r.path);
   const repoOf = (file) => repos.filter((r) => r.path === '.' || file.startsWith(r.path + '/')).sort((a, b) => b.path.length - a.path.length)[0];
-  const appName = (file) => { const r = repoOf(file || ''); return r ? (r.path === '.' ? r.name : r.path) : '—'; };
+  const appName = (file) => { if (INFRA_FILE.test(file || '')) return 'infraestructura'; const r = repoOf(file || ''); return r ? (r.path === '.' ? r.name : r.path) : '—'; };
+  // dónde está: fichero:línea en el código; en un servidor, la red o un objetivo de internet basta con el sitio
+  const where = (i) => { const l = i.locations?.[0]; if (!l) return ''; return INFRA_FILE.test(l.file) ? l.file.replace(/^servidores\//, 'servidor ').replace(/^internet\//, 'visto desde internet: ').replace(/^red\//, 'red: ') : `${l.file}:${l.line}`; };
 
   // ---------------------------------------------------------------- exposición y KEV
   const E = L.endpoints || [];
@@ -80,10 +74,15 @@ export function buildReport({ graph, tech, datos, generado = new Date() }) {
   const eolUnique = new Map();
   for (const c of comps) if (c.eol?.estado === 'sin-soporte' && c.tipo !== 'libreria') eolUnique.set(`${c.eol.producto}@${c.eol.rama}`, c);
   const count = (s, list = issues) => list.filter((i) => i.severity === s).length;
+  const expuestoInternet = lupaIssues.filter((i) => i.lupa?.cat === 'red' && i.severity === 'high').length;
+  const servidoresGraves = lupaIssues.filter((i) => i.lupa?.cat === 'servidores' && i.severity === 'high').length;
   const sc = score({
     kevExpuestas: kevRows.filter((k) => k.expuesta).length, kevOtras: kevRows.filter((k) => !k.expuesta).length,
-    endpointsGraves: graveEndpoints.length, graves: Math.max(0, count('high') - graveEndpoints.length - kevRows.length), aMirar: count('medium'), sinSoporte: eolUnique.size,
+    endpointsGraves: graveEndpoints.length, expuestoInternet, servidoresGraves,
+    graves: Math.max(0, count('high') - graveEndpoints.length - kevRows.length - expuestoInternet - servidoresGraves), aMirar: count('medium'), sinSoporte: eolUnique.size,
   });
+  // los datos en JSON van dentro del propio informe, con la nota ya calculada
+  const ent = entrega ? { ...entrega, datos: deliveryData({ entrega, graph, score: { n: sc.n, letra: sc.letra, quita: sc.quita } }) } : null;
   const specialModels = (datos?.ficheros || []).filter((d) => d.especial || d.tipos.some((t) => ['pasaporte', 'documento de identidad', 'datos de pago'].includes(t)));
 
   // ---------------------------------------------------------------- calor por módulo
@@ -141,13 +140,13 @@ export function buildReport({ graph, tech, datos, generado = new Date() }) {
   const urgent = [
     ...kevRows.filter((k) => k.expuesta).map((k) => ({ sev: 'high', t: `${k.paquete} ${k.version}: ${k.cves.join(', ')} se está explotando (KEV) y la app está expuesta`, w: `${k.fichero}`, a: k.app })),
     ...graveEndpoints.map((e) => ({ sev: 'high', t: `${e.metodo} ${e.ruta}: abierto a cualquiera y no debería${e.datos?.length ? ` (suelta ${e.datos.slice(0, 3).join(', ')})` : ''}`, w: `${e.fichero}:${e.linea}`, a: appName(e.fichero) })),
-    ...lupaIssues.filter((i) => i.severity === 'high' && ['secretos', 'datos', 'ia', 'exposicion'].includes(i.lupa?.cat)).map((i) => ({ sev: 'high', t: i.title, w: i.locations?.[0] ? `${i.locations[0].file}:${i.locations[0].line}` : '', a: appName(i.locations?.[0]?.file) })),
+    ...lupaIssues.filter((i) => i.severity === 'high' && ['secretos', 'datos', 'ia', 'exposicion', 'red', 'servidores'].includes(i.lupa?.cat)).map((i) => ({ sev: 'high', t: i.title, w: where(i), a: appName(i.locations?.[0]?.file) })),
     ...kevRows.filter((k) => !k.expuesta).map((k) => ({ sev: 'high', t: `${k.paquete} ${k.version}: ${k.cves.join(', ')} se está explotando (KEV)`, w: k.fichero, a: k.app })),
   ];
   // en un proyecto sin nada grave, lo más importante es lo que hay que mirar: endpoints, IA, datos y secretos
   if (urgent.length < 6) urgent.push(
-    ...lupaIssues.filter((i) => i.severity === 'high' && !['secretos', 'datos', 'ia', 'exposicion'].includes(i.lupa?.cat)).map((i) => ({ sev: 'high', t: i.title, w: i.locations?.[0] ? `${i.locations[0].file}:${i.locations[0].line}` : '', a: appName(i.locations?.[0]?.file) })),
-    ...lupaIssues.filter((i) => i.severity === 'medium' && ['endpoints', 'ia', 'datos', 'secretos', 'exposicion'].includes(i.lupa?.cat)).map((i) => ({ sev: 'medium', t: i.title, w: i.locations?.[0] ? `${i.locations[0].file}:${i.locations[0].line}` : '', a: appName(i.locations?.[0]?.file) })),
+    ...lupaIssues.filter((i) => i.severity === 'high' && !['secretos', 'datos', 'ia', 'exposicion', 'red', 'servidores'].includes(i.lupa?.cat)).map((i) => ({ sev: 'high', t: i.title, w: where(i), a: appName(i.locations?.[0]?.file) })),
+    ...lupaIssues.filter((i) => i.severity === 'medium' && ['endpoints', 'ia', 'datos', 'secretos', 'exposicion'].includes(i.lupa?.cat)).map((i) => ({ sev: 'medium', t: i.title, w: where(i), a: appName(i.locations?.[0]?.file) })),
   );
   urgent.splice(12);
   // endpoints con algún problema, tengan login o no, lo más grave primero
@@ -172,7 +171,6 @@ export function buildReport({ graph, tech, datos, generado = new Date() }) {
   // ---------------------------------------------------------------- HTML
   const repoLine = repos.map((r) => `${esc(r.name || r.path)}${r.branch ? ` · ${esc(r.branch)}` : ''}${r.head ? `@${esc(String(r.head).slice(0, 8))}` : ''}`).join(' &nbsp;|&nbsp; ');
   const R = L.revision || {};
-  const tile = (label, value, sub, css = '') => `<div class="tile ${css}"><div class="tl">${esc(label)}</div><div class="tv">${fmt(value)}</div><div class="sub">${sub}</div></div>`;
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Lupa · ${esc(graph.project?.name || 'informe')}</title>
 <style>
@@ -207,13 +205,18 @@ table.t{width:100%;border-collapse:collapse;font-size:13.5px}.t th{text-align:le
 .chip{display:inline-block;background:var(--raise);border-radius:6px;padding:1px 7px;font-size:12px;margin:1px 0}
 details{margin-top:10px}summary{cursor:pointer;color:var(--acc);font-size:13px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.ficha{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chip.crit{background:color-mix(in srgb,var(--crit) 16%,transparent)}.chip.serious{background:color-mix(in srgb,var(--serious) 18%,transparent)}.chip.good{background:color-mix(in srgb,var(--good) 14%,transparent)}
+svg.net{width:100%;height:auto;display:block}.net .ed{fill:none;stroke:var(--line);stroke-width:1.3;opacity:.6}.net .ed.crit{stroke:var(--crit);opacity:.95;stroke-width:2}.net .ed.serious{stroke:var(--serious);opacity:.9}
+.net .nd circle{stroke:var(--surface);stroke-width:2}.net .nd text{font-size:11.5px;fill:var(--ink2)}.net .nd.srv circle{fill:var(--acc)}.net .nd.int circle{fill:var(--crit)}.net .nd.aws circle{fill:var(--muted)}.net .nd.unk circle{fill:var(--warn)}.net .nd.off circle{fill:var(--surface);stroke:var(--acc);stroke-dasharray:3 2}
+.net.dim .ed:not(.on){opacity:.06}.net.dim .nd:not(.on){opacity:.3}.net .nd{cursor:default}
 #tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--surface);font-size:12.5px;padding:6px 9px;border-radius:8px;opacity:0;transition:opacity .1s;max-width:320px;z-index:9}
 footer{color:var(--muted);font-size:12px;margin-top:22px}
 @media (max-width:720px){.hero,.grid2{grid-template-columns:1fr}.bar-row{grid-template-columns:110px 1fr}.t{font-size:12.5px}section{padding:16px}}
 @media print{:root{color-scheme:light}body{background:#fff}section{break-inside:avoid;border-color:#ddd}#tip,details summary{display:none}details>*{display:block}}
-</style></head><body><main>
+${mapa ? MAP_CSS : ''}
+</style></head><body>${mapNav(mapa)}<main>
 <header><div class="k">Lupa · informe de seguridad</div><h1>${esc(graph.project?.name || 'Proyecto')}</h1>
-<div class="meta">${esc(generado.toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' }))} &nbsp;|&nbsp; ${repoLine || '—'}</div></header>
+<div class="meta">${esc(generado.toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' }))} &nbsp;|&nbsp; ${repoLine || '—'}</div>${deliverySection(ent,'cabecera')}</header>
 
 <section><div class="hero"><div class="grade"><div class="sub">Nota</div><div class="g">${sc.letra}</div><div class="n">${sc.n} sobre 100</div></div>
 <div class="tiles">
@@ -222,12 +225,13 @@ ${tile('Explotadas ahora (KEV)', kevRows.length, `${kevRows.filter((k) => k.expu
 ${tile('Abiertos y no deberían', shouldNot.length, `de ${fmt(E.length)} endpoints · ${graveEndpoints.length} graves`, shouldNot.length ? 'crit' : 'good')}
 ${tile('Tecnología sin soporte', eolUnique.size, 'runtimes, frameworks, BD e imágenes', eolUnique.size ? 'serious' : 'good')}
 ${tile('Modelos con datos sensibles', specialModels.length, `${fmt((datos?.ficheros || []).length)} con datos personales`, specialModels.length ? 'warn' : 'good')}
+${infra ? tile('Graves en servidores y red', expuestoInternet + servidoresGraves, `${fmt(infra.servidores?.length || 0)} servidores revisados · ${fmt(expuestoInternet)} abiertos a internet`, expuestoInternet + servidoresGraves ? 'crit' : 'good') : ''}
 </div></div></section>
 
 <section><h2>Dónde se pierde la seguridad</h2><p class="lead">Cada bloque es una parte del proyecto, del tamaño de su código. El color dice lo peor que tiene dentro.</p>
 <svg class="tmap" viewBox="0 0 ${W} ${H}" role="img" aria-label="Mapa de calor de seguridad por módulo">${svgCells}</svg>
 <div class="legend"><span><i style="background:var(--crit)"></i>▲ Hay algo grave</span><span><i style="background:var(--serious)"></i>◆ Hay algo a mirar</span><span><i style="background:var(--warn)"></i>● Solo menores</span><span><i style="background:var(--good)"></i>✓ Sin avisos</span></div>
-<details><summary>Ver como tabla</summary><table class="t"><thead><tr><th>Parte</th><th>Graves</th><th>A mirar</th><th>Menores</th></tr></thead><tbody>${heatRows.map(([id, h]) => `<tr><td>${esc(label(id))}</td><td class="num">${h.high}</td><td class="num">${h.medium}</td><td class="num">${h.low}</td></tr>`).join('')}</tbody></table></details></section>
+${mapa ? '<p><button type="button" class="link" data-abre-mapa>Abrir el mapa interactivo del código, con cada aviso en su sitio →</button></p>' : ''}<details><summary>Ver como tabla</summary><table class="t"><thead><tr><th>Parte</th><th>Graves</th><th>A mirar</th><th>Menores</th></tr></thead><tbody>${heatRows.map(([id, h]) => `<tr><td>${esc(label(id))}</td><td class="num">${h.high}</td><td class="num">${h.medium}</td><td class="num">${h.low}</td></tr>`).join('')}</tbody></table></details></section>
 
 <section><h2>Lo más importante</h2><p class="lead">Por orden: lo que ya se está explotando en apps expuestas, los endpoints abiertos que no deberían, los secretos o datos al aire y, si no hay nada grave, lo que hay que mirar.</p>
 <ul class="urg">${urgent.map((u) => `<li>${pill(SEV[u.sev])}<div>${esc(u.t)}<div class="w">${esc(u.a)} · ${esc(u.w)}</div></div></li>`).join('') || '<li><span></span><div>Nada importante pendiente.</div></li>'}</ul></section>
@@ -240,6 +244,7 @@ ${tile('Modelos con datos sensibles', specialModels.length, `${fmt((datos?.fiche
 <h3>Endpoints con algún problema <span class="c">${withIssues.length}</span></h3>
 <table class="t"><thead><tr><th></th><th>Endpoint</th><th>Acceso</th><th>App</th><th>Qué pasa</th></tr></thead><tbody>${withIssues.slice(0, 50).map((e) => `<tr><td>${pill(SEV[{ alta: 'high', media: 'medium', baja: 'low' }[e.severidad]])}</td><td><code>${esc(e.metodo)} ${esc(e.ruta)}</code></td><td>${e.publico === true ? `Sin login${e.deberiaSerPublico === false ? '<div class="sub">y no debería</div>' : ''}` : e.publico === false ? 'Con login' : 'Dudoso'}</td><td>${esc(appName(e.fichero))}</td><td>${esc(e.motivo)}${e.datos?.length ? `<div class="sub">Suelta: ${esc(e.datos.join(', '))}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5">Ninguno.</td></tr>'}</tbody></table>${withIssues.length > 50 ? `<p class="sub">y ${withIssues.length - 50} más en el mapa.</p>` : ''}</section>
 
+${infraSection(infra, lupaIssues)}
 <section><h2>Librerías con fallos que se están explotando (KEV)</h2><p class="lead">CVE que el catálogo KEV de la CISA da como explotados en ataques reales. «Expuesta» quiere decir que esa app tiene endpoints que cualquiera puede llamar. EPSS es la probabilidad de explotación en 30 días, en percentil.</p>
 <table class="t"><thead><tr><th>Librería</th><th>CVE</th><th>App</th><th>Expuesta</th><th>EPSS</th><th>Arreglo</th></tr></thead><tbody>${kevRows.map((k) => `<tr><td>${esc(k.paquete)} <span class="sub">${esc(k.version)}</span>${k.ransomware ? '<div class="sub">usada en ransomware</div>' : ''}</td><td><code>${esc(k.cves.join(', '))}</code></td><td>${esc(k.app)}</td><td>${k.expuesta ? pill(SEV.high).replace('Grave', 'Sí') : pill(STATE.desconocido).replace('Sin datos', 'No consta')}</td><td class="num">${k.epss ? Math.round(k.epss * 100) + '%' : '—'}</td><td>${esc(k.arreglo || 'sin versión arreglada')}</td></tr>`).join('') || '<tr><td colspan="6">Ninguna librería con CVE del catálogo KEV.</td></tr>'}</tbody></table>
 <p class="sub">${fmt(depIssues.length)} ficheros de dependencias con avisos en total.</p></section>
@@ -252,13 +257,13 @@ ${techGroups}</section>
 <section><h2>Datos personales</h2><p class="lead">Modelos, tablas y migraciones que guardan datos de personas. Salud, antecedentes, biometría u origen son categorías especiales del RGPD (art. 9).</p>
 <table class="t"><thead><tr><th>Dónde</th><th>Qué guarda</th><th>Cifrado</th></tr></thead><tbody>${(datos?.ficheros || []).sort((a, b) => +b.especial - +a.especial).slice(0, 40).map((d) => `<tr><td><span class="w">${esc(d.fichero)}</span>${d.especial ? `<div>${pill(SEV.medium).replace('A mirar', 'Categoría especial')}</div>` : ''}</td><td>${chips(d.tipos)}<div class="sub">${esc(d.campos.map((c) => c.campo).slice(0, 12).join(', '))}</div></td><td>${d.cifrado ? pill(STATE['al-dia']).replace('Con soporte', 'Hay pistas') : pill(STATE.desconocido).replace('Sin datos', 'No consta')}</td></tr>`).join('') || '<tr><td colspan="3">No se han encontrado modelos con datos personales.</td></tr>'}</tbody></table></section>
 
-<section><h2>Cómo se ha hecho</h2>
+<section><h2>Cómo se ha hecho</h2>${deliverySection(ent,'detalle')}
 <p class="lead">Herramientas: ${esc(Object.entries(L.herramientas || {}).map(([n, v]) => `${n} ${String(v).split(' ').pop()}`).join(' · ') || '—')}. Revisión de la IA: ${fmt(R.endpoints || 0)} de ${fmt(R.endpointsTotal || 0)} endpoints y ${fmt(R.hallazgosCribados || 0)} grupos de avisos; ${fmt(R.descartados || 0)} falsos positivos quitados.</p>
 ${(L.avisos || []).length ? `<h3>Lo que no se pudo mirar entero</h3><ul>${L.avisos.map((a) => `<li class="sub">${esc(a)}</li>`).join('')}</ul>` : ''}
 <h3>La nota</h3><table class="t"><tbody>${sc.quita.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">−${v}</td></tr>`).join('')}<tr><td><b>Resultado</b> (sobre 100; A ≥ 90 · B ≥ 75 · C ≥ 60 · D ≥ 45 · E ≥ 30 · F &lt; 30)</td><td class="num"><b>${sc.n} → ${sc.letra}</b></td></tr></tbody></table>
 <p class="sub">Lupa es una auditoría automática del código, la configuración y las dependencias, con revisión por IA. No sustituye a un pentest: no ejecuta la aplicación ni prueba ataques reales.</p></section>
-<footer>Generado por Lupa. El mapa interactivo está en floorplan/index.html; el detalle de cada aviso, con su arreglo, en su Health.</footer>
-</main><div id="tip" role="tooltip"></div>
+<footer>Generado por Lupa. ${mapa ? 'El mapa interactivo del código, con el detalle y el arreglo de cada aviso en su Health, está en la pestaña «Mapa del código».' : 'El mapa interactivo está en floorplan/index.html; el detalle de cada aviso, con su arreglo, en su Health.'}</footer>
+</main><div id="tip" role="tooltip"></div>${mapPanel(mapa)}${deliverySection(ent,'datos')}
 <script>(()=>{const t=document.getElementById('tip');document.addEventListener('mousemove',e=>{const el=e.target.closest('[data-tip]');if(!el){t.style.opacity=0;return}t.textContent=el.dataset.tip;t.style.opacity=1;const x=Math.min(e.clientX+14,innerWidth-t.offsetWidth-8),y=e.clientY+16;t.style.left=x+'px';t.style.top=y+'px'})})();</script>
 </body></html>`;
 }

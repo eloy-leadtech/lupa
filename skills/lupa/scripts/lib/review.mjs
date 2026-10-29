@@ -39,6 +39,7 @@ function triageGroups(findings) {
 /** Qué hallazgos merece la pena que la IA mire: los que suelen dar falsos positivos. */
 export function needsTriage(f) {
   if (f.cat === 'dependencias') return false; // un CVE es un CVE
+  if (/^lupa-(servidor|red|externo)$/.test(f.tool)) return false; // medido en el servidor o desde internet: es un hecho
   if (f.cat === 'infra' && f.tool === 'trivy') return f.severity === 'high';
   return f.severity !== 'low';
 }

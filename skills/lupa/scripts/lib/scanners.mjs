@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { run, readJSON, relTo, posix, normSeverity, tmpDir } from './util.mjs';
+import { runTool } from './tools.mjs';
 
 /** Carpetas que nunca se escanean: dependencias, compilados y la propia salida de floorplan/Lupa. */
 export const SKIP_DIRS = ['node_modules', 'vendor', 'dist', 'build', '.next', '.nuxt', 'coverage', '.venv', 'venv', '__pycache__', 'target', '.terraform', 'floorplan', '.git'];
@@ -26,7 +27,7 @@ export function runGitleaks(tool, root, repos, log = () => {}) {
     const args = isGit
       ? ['git', dir, '--report-format', 'json', '--report-path', report, '--redact', '--no-banner', '--exit-code', '0', '--log-level', 'warn']
       : ['dir', dir, '--report-format', 'json', '--report-path', report, '--redact', '--no-banner', '--exit-code', '0', '--log-level', 'warn'];
-    const r = run(tool.path, args);
+    const r = runTool(tool, args);
     if (r.status !== 0) { log(`gitleaks falló en ${repo.path}: ${(r.stderr || r.error?.message || '').slice(0, 300)}`); continue; }
     const head = isGit ? run('git', ['-C', dir, 'rev-parse', 'HEAD']).stdout.trim() : '';
     // ¿sigue el secreto en el código de hoy? Se mira con una pasada sobre los ficheros actuales
@@ -34,7 +35,7 @@ export function runGitleaks(tool, root, repos, log = () => {}) {
     const now = new Set();
     if (isGit) {
       const cur = tmpFile('gitleaks-hoy.json');
-      run(tool.path, ['dir', dir, '--report-format', 'json', '--report-path', cur, '--redact', '--no-banner', '--exit-code', '0', '--log-level', 'error']);
+      runTool(tool, ['dir', dir, '--report-format', 'json', '--report-path', cur, '--redact', '--no-banner', '--exit-code', '0', '--log-level', 'error']);
       for (const c of readJSON(cur, []) || []) now.add(`${posix(path.relative(dir, path.resolve(dir, c.File || '')))}|${c.RuleID}`);
     }
     for (const f of readJSON(report, []) || []) {
@@ -70,7 +71,7 @@ export function runSemgrep(tool, root, { rulesFile, packs = SEMGREP_PACKS, log =
   if (rulesFile) args.push('--config', rulesFile);
   for (const d of SKIP_DIRS) args.push('--exclude', d);
   args.push(root);
-  const r = run(tool.path, args, { cwd: root });
+  const r = runTool(tool, args, { cwd: root });
   const data = readJSON(report);
   if (!data) { log(`Semgrep no dio resultados: ${(r.stderr || r.error?.message || '').slice(-400)}`); return []; }
   for (const e of data.errors || []) if (e.level === 'error') log(`Semgrep: ${String(e.message || e.type).slice(0, 200)}`);
@@ -99,7 +100,7 @@ export function runSemgrep(tool, root, { rulesFile, packs = SEMGREP_PACKS, log =
       owasp: [].concat(m.owasp || []).join(', '),
       title: own ? x.extra.message.split('\n')[0] : `Posible fallo de seguridad (${rule.replace(/[-_]/g, ' ')}) en ${path.posix.basename(file)}`,
       detail: own ? (m['lupa-detail'] || x.extra.message) : x.extra?.message || rule,
-      fix: `Arreglo de seguridad en ${file}:${x.start?.line}: la regla ${x.check_id}${m.cwe ? ` (${[].concat(m.cwe)[0]})` : ''} avisa de esto:\n${x.extra?.message}\n\nComprueba si es un problema real en este contexto. Si lo es, arréglalo con el cambio mínimo, añade una prueba que lo demuestre y explícame en dos frases qué riesgo quitaba. Si no lo es, dime por qué.`,
+      fix: `Arreglo de seguridad en ${file}:${x.start?.line}: la regla ${checkId}${m.cwe ? ` (${[].concat(m.cwe)[0]})` : ''} avisa de esto:\n${x.extra?.message}\n\nComprueba si es un problema real en este contexto. Si lo es, arréglalo con el cambio mínimo, añade una prueba que lo demuestre y explícame en dos frases qué riesgo quitaba. Si no lo es, dime por qué.`,
     });
   }
   return out;
@@ -111,12 +112,12 @@ function trivyJson(tool, dir, scanners, log) {
   const args = ['fs', '--scanners', scanners, '--list-all-pkgs', '--format', 'json', '--output', report, '--quiet', '--exit-code', '0', '--include-dev-deps'];
   for (const d of SKIP_DIRS.filter((d) => d !== 'vendor')) args.push('--skip-dirs', `**/${d}`);
   args.push(dir);
-  let r = run(tool.path, args, { cwd: dir });
+  let r = runTool(tool, args, { cwd: dir });
   // Maven Central corta a quien pregunta mucho seguido (HTTP 429). Sin red se pierden algunas
   // dependencias transitivas de Java, pero se escanea todo lo demás en vez de nada.
   if (/429|Too Many Requests/i.test(r.stderr) && !readJSON(report)) {
     log('Maven Central ha frenado a Trivy (429): repito sin consultar internet; en Java pueden faltar dependencias transitivas');
-    r = run(tool.path, [...args.slice(0, -1), '--offline-scan', dir], { cwd: dir });
+    r = runTool(tool, [...args.slice(0, -1), '--offline-scan', dir], { cwd: dir });
   }
   const data = readJSON(report);
   if (!data) log(`Trivy no dio resultados: ${(r.stderr || r.error?.message || '').slice(-400)}`);

@@ -14,12 +14,17 @@ export const CATS = {
   dependencias: 'Librerías con fallos',
   tecnologia: 'Tecnología obsoleta',
   ia: 'Inteligencia artificial',
+  servidores: 'Servidores por dentro',
+  red: 'Red y exposición a internet',
 };
 
-export const findingId = (f) => crypto.createHash('sha1').update(`${f.tool}|${f.rule}|${f.file}|${f.line}|${f.pkg || ''}`).digest('hex').slice(0, 10);
+// «clave» distingue avisos de la misma regla en la misma tarjeta (dos contenedores de un servidor, dos puertos…)
+export const findingId = (f) => crypto.createHash('sha1').update(`${f.tool}|${f.rule}|${f.file}|${f.line}|${f.pkg || f.clave || ''}`).digest('hex').slice(0, 10);
 
 /** Id del nodo donde Lupa cuelga lo que floorplan no dibuja (Jenkinsfile, claves, copias de BD…). */
 export const OUTSIDE_NODE = 'lupa-fuera';
+/** Id del nodo donde cuelgan los servidores, la red y lo visto desde internet. */
+export const INFRA_NODE = 'lupa-infra';
 
 /**
  * Coloca cada fichero en el mapa. Si floorplan lo tiene, es su tarjeta; si no, lo apunta para
@@ -44,7 +49,9 @@ export function makeMapper(graph) {
   };
 }
 
-const lineNote = (f) => `línea ${f.line}: ${f.title}`;
+// un servidor, la red o un objetivo de internet no tienen líneas: su tarjeta es el propio sitio
+export const INFRA_FILE = /^(servidores|red|internet)\//;
+const lineNote = (f) => (INFRA_FILE.test(f.file) ? f.title : `línea ${f.line}: ${f.title}`);
 
 /** Agrupa por categoría y fichero, para no inundar la lista con cien avisos del mismo sitio. */
 export function toIssues(findings, mapper) {
@@ -68,7 +75,8 @@ export function toIssues(findings, mapper) {
       id: 'lupa:' + key,
       kind: 'lupa-' + cat,
       severity: worst(list.map((x) => x.severity)),
-      title: one ? f0.title : `${CATS[cat] || cat}: ${plural(list.length, 'problema')} en ${base}`,
+      // en un servidor, el titular es su peor problema: «136 parches de seguridad sin aplicar…» dice más que «4 problemas»
+      title: one ? f0.title : INFRA_FILE.test(f0.file) ? `${f0.title} (y ${plural(list.length - 1, 'aviso')} más)` : `${CATS[cat] || cat}: ${plural(list.length, 'problema')} en ${base}`,
       detail: one ? f0.detail : list.slice(0, 8).map((x) => `• ${lineNote(x)}`).join('\n') + (list.length > 8 ? `\n• y ${list.length - 8} más` : ''),
       items: item ? [item] : [],
       notes,

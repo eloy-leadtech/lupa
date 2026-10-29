@@ -1,0 +1,4 @@
+# El auditor va a servidores Linux: con CRLF no arranca. Todo el texto en LF, también desde Windows.
+* text=auto eol=lf
+*.png binary
+*.woff2 binary

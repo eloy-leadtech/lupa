@@ -17,6 +17,9 @@ import { writeWorksheets } from './lib/review.mjs';
 import { loadEol, loadKev, loadEpss } from './lib/intel.mjs';
 import { inventory, techFindings } from './lib/tech.mjs';
 import { dataMap, dataFindings, aiFiles } from './lib/datamap.mjs';
+import { loadServers, serverFindings, serverSummary } from './lib/servidores.mjs';
+import { networkModel, exposure, networkFindings } from './lib/red.mjs';
+import { externalFindings } from './lib/externo.mjs';
 import crypto from 'node:crypto';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -137,9 +140,34 @@ if (beforeIa > findings.length) console.log(`  (${beforeIa - findings.length} av
 // lo que el mapa ignora tampoco cuenta para la tecnología ni los datos, que se calculan después
 if (ignored.length) findings = findings.filter((f) => !ignored.some((re) => re.test(f.file)));
 
+// ---------------------------------------------------------------- servidores, red y vista desde internet
+// Vienen de lo recogido aparte (servidores-ssm.mjs o lupa-servidor.py por ssh, y externo.mjs) y se
+// recalculan siempre, como la tecnología. Cada servidor y cada objetivo público es una tarjeta propia.
+const INFRA_TOOLS = new Set(['lupa-servidor', 'lupa-red', 'lupa-externo']);
+findings = findings.filter((f) => !INFRA_TOOLS.has(f.tool));
+const servers = loadServers(path.join(outDir, 'servidores'));
+const awsNet = readJSON(path.join(outDir, 'red-aws.json'));
+const ext = readJSON(path.join(outDir, 'externo.json'));
+const srvF = servers.flatMap((h) => serverFindings(h, { eolData: eol }));
+const netModel = networkModel(servers, awsNet);
+const exposed = exposure(servers, awsNet);
+const infraF = [...srvF, ...(servers.length || awsNet ? networkFindings(servers, netModel, exposed) : []), ...externalFindings(ext)].map((f) => ({ ...f, clave: f.clave || f.title }));
+findings.push(...infraF);
+if (servers.length || awsNet || ext) {
+  const audited = new Set(servers.map((h) => h.aws?.id).filter(Boolean));
+  writeJSON(path.join(outDir, 'infra.json'), {
+    generadoEn: new Date().toISOString(), servidores: servers.map((h) => serverSummary(h, srvF, { eolData: eol })),
+    sinAuditar: (awsNet?.instancias || []).filter((i) => !audited.has(i.id)).map((i) => ({ nombre: i.nombre, ip: i.ipPrivada })),
+    red: netModel, expuesto: exposed,
+    externo: ext ? { desde: ext.desde, generadoEn: ext.generadoEn, objetivos: ext.objetivos.map((t) => ({ objetivo: t.objetivo, ip: t.ip || '', privado: !!t.privado, error: t.error || '',
+      puertos: (t.puertos || []).map((p) => ({ puerto: p.puerto, servicio: p.servicio, tls: p.tls ? { valido: p.tls.valido, caduca: p.tls.caduca, dias: p.tls.dias, emisor: p.tls.emisor, protocolo: p.tls.protocolo } : null, http: p.http ? { estado: p.http.estado, titulo: p.http.titulo } : null })) })) } : null,
+  });
+  console.log(`  infra     ${String(servers.length).padStart(5)} servidores por dentro · ${netModel.edges.length} conexiones · ${exposed.length} puertas a internet · vista externa: ${ext ? `${ext.objetivos.length} objetivos` : 'sin hacer'} (${infraF.length} avisos)`);
+}
+
 // el mismo aviso visto dos veces (dos reglas, o la misma con varias coincidencias) cuenta una vez
 const seen = new Set();
-findings = findings.filter((f) => { const k = `${f.cat}|${f.rule}|${f.file}|${f.line}|${f.pkg || ''}`; if (seen.has(k)) return false; seen.add(k); return true; });
+findings = findings.filter((f) => { const k = `${f.cat}|${f.rule}|${f.file}|${f.line}|${f.pkg || f.clave || ''}`; if (seen.has(k)) return false; seen.add(k); return true; });
 for (const f of findings) f.id = findingId(f);
 
 // ---------------------------------------------------------------- superficie de ataque
