@@ -345,6 +345,7 @@ export const ARCH_CSS = `#arquitectura,#arquitectura-general,.arq{scroll-margin-
 .fz span{color:var(--acc);letter-spacing:-1px}.fz.f1{--fa:22%}.fz.f2{--fa:13%}.fz.f3{--fa:6%}.fz.dec{background:var(--raise)}
 .arq-d{margin:12px 0}.arq-d figure{margin:0;background:var(--raise);border-radius:12px;padding:10px 10px 6px}.arq-d figcaption{font-size:12.5px;color:var(--ink2);font-weight:600;margin-bottom:4px}
 svg.adg{width:100%;height:auto;display:block;max-height:360px}.adg .ab rect{fill:var(--surface);stroke:var(--line);stroke-width:1.2}.adg .ab text{font-size:12.5px;fill:var(--ink)}
+.arq-d.stack{grid-template-columns:1fr}.arq-d.stack svg.adg{max-height:220px}
 @media (max-width:960px){.arq-d.grid2{grid-template-columns:1fr}}
 .adg .ab.problema rect{fill:color-mix(in srgb,var(--crit) 14%,var(--surface));stroke:var(--crit);stroke-width:1.6}.adg .ab.nuevo rect{fill:color-mix(in srgb,var(--acc) 14%,var(--surface));stroke:var(--acc);stroke-width:1.6}
 .adg .ab.externo rect{stroke-dasharray:4 3}.adg .ae{fill:none;stroke:var(--muted);stroke-width:1.4}.adg .ae.back{stroke-dasharray:4 3;stroke:var(--crit)}.adg .ah{fill:var(--muted)}
@@ -362,7 +363,7 @@ function card(p, n) {
 <ul>${a.aFavor.map((x) => `<li class="pro">${esc(x)}</li>`).join('')}${a.enContra.map((x) => `<li class="con">${esc(x)}</li>`).join('')}</ul><div class="ef">Esfuerzo: <b>${esc(ESFUERZO[a.esfuerzo])}</b></div></div>`;
   return `<article class="arq" id="arq-${esc(p.id)}"><div class="arq-top"><h3>${n}. ${esc(p.titulo)}</h3><span class="fz ${fz.css}" title="Fuerza de la recomendación"><span aria-hidden="true">${fz.icon}</span> ${esc(fz.word)}</span>${dec}</div>
 <p>${esc(p.problema)}</p>${p.quitaDeRaiz.length ? `<p class="sub">Quita de raíz: ${p.quitaDeRaiz.map((x) => `<span class="chip">${esc(x)}</span>`).join(' ')}</p>` : ''}
-${p.antes || p.despues ? `<div class="grid2 arq-d"><figure><figcaption>Ahora</figcaption>${diagram(p.antes, 'Ahora', span)}</figure><figure><figcaption>Con el cambio recomendado</figcaption>${diagram(p.despues, 'Con el cambio', span)}</figure></div>` : ''}
+${p.antes || p.despues ? `<div class="grid2 arq-d${span > 3 ? ' stack' : ''}"><figure><figcaption>Ahora</figcaption>${diagram(p.antes, 'Ahora', span)}</figure><figure><figcaption>Con el cambio recomendado</figcaption>${diagram(p.despues, 'Con el cambio', span)}</figure></div>` : ''}
 <div class="alts">${p.alternativas.map(alt).join('')}</div>
 ${p.porQue ? `<p><b>Por qué la recomendada:</b> ${esc(p.porQue)}</p>` : ''}${p.decision?.motivo ? `<p class="sub">Decisión del equipo: ${esc(p.decision.motivo)}</p>` : ''}
 ${p.primerPaso ? `<p class="sub">Primer paso, para pedírselo a Claude: <code>${esc(p.primerPaso)}</code></p>` : ''}
