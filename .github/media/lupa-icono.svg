@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Lupa">
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A1020"/>
+      <stop offset="1" stop-color="#2B2876"/>
+    </linearGradient>
+    <linearGradient id="aro" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#67E8F9"/>
+      <stop offset="1" stop-color="#818CF8"/>
+    </linearGradient>
+    <radialGradient id="cristal" cx="0.35" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#67E8F9" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#67E8F9" stop-opacity="0.03"/>
+    </radialGradient>
+    <clipPath id="lente"><circle cx="112" cy="112" r="53"/></clipPath>
+  </defs>
+  <rect width="256" height="256" rx="58" fill="url(#fondo)"/>
+  <rect x="1.5" y="1.5" width="253" height="253" rx="56.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3"/>
+  <line x1="160" y1="160" x2="200" y2="200" stroke="url(#aro)" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="112" cy="112" r="53" fill="url(#cristal)"/>
+  <g clip-path="url(#lente)">
+    <g stroke="#67E8F9" stroke-opacity="0.08" stroke-width="1.5">
+      <line x1="50" y1="72" x2="174" y2="72"/><line x1="50" y1="88" x2="174" y2="88"/>
+      <line x1="50" y1="104" x2="174" y2="104"/><line x1="50" y1="120" x2="174" y2="120"/>
+      <line x1="50" y1="136" x2="174" y2="136"/><line x1="50" y1="152" x2="174" y2="152"/>
+    </g>
+    <g stroke="#A5B4FC" stroke-opacity="0.6" stroke-width="2.5" stroke-linecap="round">
+      <line x1="84" y1="100" x2="114" y2="78"/><line x1="84" y1="100" x2="96" y2="136"/>
+      <line x1="114" y1="78" x2="138" y2="116"/><line x1="96" y1="136" x2="138" y2="116"/>
+      <line x1="96" y1="136" x2="126" y2="148"/><line x1="138" y1="116" x2="126" y2="148"/>
+    </g>
+    <circle cx="84" cy="100" r="6" fill="#CBD5E1"/>
+    <circle cx="114" cy="78" r="6" fill="#FBBF24"/>
+    <circle cx="96" cy="136" r="6" fill="#CBD5E1"/>
+    <circle cx="126" cy="148" r="5.5" fill="#60A5FA"/>
+    <circle cx="138" cy="116" r="14" fill="#F43F5E" fill-opacity="0.28"/>
+    <circle cx="138" cy="116" r="7.5" fill="#F43F5E"/>
+  </g>
+  <circle cx="112" cy="112" r="60" fill="none" stroke="url(#aro)" stroke-width="14"/>
+  <path d="M74 88 A44 44 0 0 1 100 69" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="5" stroke-linecap="round"/>
+</svg>

@@ -1,74 +1,89 @@
-# Lupa
+<p align="center">
+  <img src=".github/media/lupa-banner.svg" alt="Lupa: la auditoría de seguridad de un proyecto entero, hecha por el propio equipo en una sesión" width="100%">
+</p>
 
-**La auditoría de seguridad de un proyecto entero (su código, su camino a producción, sus servidores y lo que se ve desde internet) que cada equipo hace por su cuenta en una sesión y entrega en un solo fichero.**
+<p align="center">
+  <img src="https://img.shields.io/badge/plugin-Claude_Code-7C3AED?style=flat-square" alt="Plugin de Claude Code">
+  <img src="https://img.shields.io/badge/versi%C3%B3n-0.4-0EA5E9?style=flat-square" alt="Versión 0.4">
+  <img src="https://img.shields.io/badge/servidores-solo_lectura-10B981?style=flat-square" alt="Servidores en solo lectura">
+  <img src="https://img.shields.io/badge/esc%C3%A1neres-fijados_por_SHA--256-F59E0B?style=flat-square" alt="Escáneres fijados por SHA-256">
+  <img src="https://img.shields.io/badge/CI%2FCD-GitHub_%C2%B7_Bitbucket-EC4899?style=flat-square" alt="CI/CD en GitHub y Bitbucket">
+  <img src="https://img.shields.io/badge/entrega-1_fichero_HTML-64748B?style=flat-square" alt="Entrega: un fichero HTML">
+</p>
 
-## En resumen
+<h3 align="center">Código, CI/CD, servidores, red e internet.<br>Una sesión de Claude Code. Un solo fichero.</h3>
+
+<p align="center">
+  Cada equipo audita su propio proyecto y le devuelve a seguridad un informe con nota, prioridades y arreglos.
+</p>
+
+<p align="center">
+  <a href="#para-los-equipos-de-la-dirección-al-informe"><b>Empezar</b></a> ·
+  <a href="#qué-entrega">Qué entrega</a> ·
+  <a href="#qué-mira">Qué mira</a> ·
+  <a href="#garantías">Garantías</a> ·
+  <a href="#para-claude-si-te-han-pasado-este-repositorio">Para Claude</a>
+</p>
+
+---
+
+## En 30 segundos
 
 **El problema.** Cada equipo tiene su código, sus servidores y su forma de desplegar. Saber cómo está cada uno en seguridad exige hoy que alguien de seguridad audite proyecto a proyecto, y eso no escala.
 
-**Qué hace Lupa.** El propio equipo la lanza desde Claude Code sobre su proyecto. Lupa combina tres escáneres de código abierto reconocidos (gitleaks, Semgrep y Trivy) con comprobaciones propias y con la revisión de Claude, que lee cada endpoint y descarta los falsos positivos. Mira cuatro cosas:
+**Qué hace Lupa.** El propio equipo la lanza desde Claude Code sobre su proyecto. Lupa combina cuatro escáneres de código abierto reconocidos (gitleaks, Semgrep, Trivy y zizmor) con comprobaciones propias y con la revisión de Claude, que lee cada endpoint y descarta los falsos positivos. Lo que sale es un único fichero que el equipo manda a seguridad.
 
-- **El código:** secretos (también en el historial de git), fallos de seguridad, librerías con vulnerabilidades conocidas (y cuáles se están explotando ya en el mundo real), datos personales, apps con IA y cada endpoint de la API.
-- **El camino a producción (CI/CD):** si la rama principal está protegida y los cambios se revisan de verdad, qué permisos y secretos tiene el pipeline y si se le escapan en los logs, y con qué credenciales entra en la nube. Detecta sola si el equipo usa GitHub o Bitbucket y mide los dos con los mismos criterios.
-- **Los servidores:** uno a uno por dentro, en solo lectura (parches, accesos, contenedores, secretos en disco, vigilancia), y cómo se comunican entre ellos.
-- **La exposición:** qué se ve desde internet y qué no debería verse.
+<p align="center">
+  <img src=".github/media/lupa-flujo.svg" alt="Cinco frentes (código, CI/CD, servidores, red e internet) entran en Lupa, que los pasa por gitleaks, Semgrep, Trivy y zizmor más la revisión de Claude, y sale un solo informe HTML para el equipo de seguridad" width="100%">
+</p>
 
-**Qué entrega.** Un único fichero HTML, con dos pestañas:
-- **el informe:** una **nota de la A a la F**, lo urgente por orden con su arreglo, y una ficha de quién lo hizo, cuándo y qué quedó sin mirar;
-- **el mapa interactivo del código**, con cada problema en su sitio.
+| Frente | Qué mira |
+|---|---|
+| **Código** | Secretos (también en el historial de git), fallos de seguridad, librerías con vulnerabilidades conocidas (y cuáles se están explotando ya en el mundo real), datos personales, apps con IA y cada endpoint de la API. |
+| **CI/CD** | Si la rama principal está protegida y los cambios se revisan de verdad, qué permisos y secretos tiene el pipeline y si se le escapan en los logs, y con qué credenciales entra en la nube. Detecta sola si el equipo usa GitHub o Bitbucket y mide los dos con los mismos criterios. |
+| **Servidores** | Uno a uno por dentro, en solo lectura: parches, accesos, contenedores, secretos en disco y vigilancia. |
+| **Red** | Cómo se comunican los servidores entre ellos, visto desde los dos extremos de cada conexión. |
+| **Internet** | Qué se ve desde fuera y qué no debería verse. |
 
-El equipo lo manda al equipo de seguridad. Se abre con doble clic, sin instalar nada.
+> [!NOTE]
+> **Estado:** versión 0.4, probada sobre la infraestructura real del equipo de seguridad: su repositorio de infraestructura como código, su CI/CD y sus servidores.
+
+## Qué entrega
+
+<p align="center">
+  <img src=".github/media/lupa-informe.svg" alt="Ilustración del informe de Lupa con datos ficticios: nota C, tres avisos graves, lo urgente por orden, el camino a producción y dónde se pierde la seguridad" width="100%">
+  <br><sub>Ilustración con datos ficticios.</sub>
+</p>
+
+Un único fichero HTML que se abre con doble clic, sin instalar nada. Tiene dos pestañas:
+
+- **Informe:** una **nota de la A a la F**, lo urgente por orden con su arreglo, el camino a producción etapa por etapa, dónde se pierde la seguridad y una ficha de quién lo hizo, cuándo y qué quedó sin mirar.
+- **Mapa del código:** el mapa interactivo del proyecto, hecho con [floorplan](https://github.com/haydenschmitty/floorplan), con cada problema en su sitio: tarjetas en rojo para lo grave, en ámbar para lo que hay que mirar y en azul para lo menor.
+
+El equipo lo manda a seguridad por Teams o por correo.
 
 ### Qué gana cada uno
 
-| | |
+| Quién | Qué gana |
 |---|---|
 | **El equipo de desarrollo** | Una lista priorizada de qué arreglar, cada punto con su arreglo listo para pedírselo a Claude, sin esperar a que seguridad tenga hueco. |
 | **Seguridad** | Un informe por proyecto, hecho con el mismo método y las mismas versiones de las herramientas: comparable entre equipos y entre una pasada y la siguiente. |
 | **Dirección** | Una nota por proyecto y su evolución en el tiempo, y dónde está el riesgo de verdad: lo que se está explotando, lo expuesto a internet y los datos personales. |
 
-### Cómo funciona
+## Garantías
 
-```mermaid
-flowchart LR
-  D["Equipo de desarrollo"] -->|"/lupa en Claude Code"| L["Lupa"]
-  L --> C["Código del repositorio"]
-  L --> P["CI/CD y despliegue<br/>(GitHub o Bitbucket)"]
-  L --> S["Servidores del proyecto<br/>(solo lectura)"]
-  L --> I["Vista desde internet"]
-  C --> R["Informe + mapa del código<br/>un solo fichero HTML"]
-  P --> R
-  S --> R
-  I --> R
-  R -->|"Teams o correo"| SEC["Equipo de seguridad"]
-```
-
-### Garantías
-
-- **No cambia nada.** En los servidores solo lee. Trabaja en una carpeta propia, a la que solo accede el administrador, y la borra al acabar; no instala nada en ellos.
-- **Pide permiso** antes de cada paso que sale del portátil del desarrollador: descargar herramientas, entrar en los servidores y mirar dominios desde internet.
-- **No copia secretos.** Si encuentra una contraseña o una clave, dice dónde está y de qué tipo es, nunca su valor.
-- **Herramientas verificadas.** Los escáneres se descargan en versiones fijadas y se comprueba su huella (SHA-256) antes de usarlos.
-- **Lo que sale del ordenador está acotado:** catálogos públicos de vulnerabilidades y el código que revisa Claude, con la cuenta de Claude de la empresa. El detalle está en [«Qué sale de tu ordenador»](#qué-sale-de-tu-ordenador).
-- **Revisada.** El código de Lupa pasó una revisión de seguridad independiente antes de su primera versión para equipos.
+| No cambia nada | Pide permiso | No copia secretos |
+|---|---|---|
+| En los servidores solo lee. Trabaja en una carpeta propia, a la que solo accede el administrador, y la borra al acabar; no instala nada en ellos. | Antes de cada paso que sale del portátil del desarrollador: descargar herramientas, entrar en los servidores y mirar dominios desde internet. | Si encuentra una contraseña o una clave, dice dónde está y de qué tipo es, nunca su valor. |
+| **Herramientas verificadas** | **Lo que sale, acotado** | **Revisada** |
+| Los escáneres se descargan en versiones fijadas y se comprueba su huella (SHA-256) antes de usarlos. | Catálogos públicos de vulnerabilidades y el código que revisa Claude, con la cuenta de Claude de la empresa. El detalle está en [«Qué sale de tu ordenador»](#qué-sale-de-tu-ordenador). | El código de Lupa pasó una revisión de seguridad independiente antes de su primera versión para equipos. |
 
 ### Coste y esfuerzo
 
-- **Sin licencias:** gitleaks, Semgrep y Trivy son de código abierto.
+- **Sin licencias:** gitleaks, Semgrep, Trivy y zizmor son de código abierto.
 - **Sin infraestructura nueva:** se ejecuta en el portátil del desarrollador.
 - **Coste variable:** el uso de Claude en la revisión, que crece con el número de endpoints. La segunda pasada solo revisa lo nuevo.
 - **Tiempo del equipo:** lanzarla, contestar unas preguntas y mandar el fichero. La parte automática tarda minutos.
-
-### Lo que no es
-
-- **No sustituye a un pentest:** no prueba ataques reales.
-- **Es una foto de un momento:** conviene repetirla, por ejemplo cada trimestre o antes de un lanzamiento importante.
-
-**Estado:** versión 0.4, probada sobre la infraestructura real del equipo de seguridad (su repositorio de infraestructura como código y sus servidores).
-
----
-
-El resto de este documento es para quien la usa: los equipos, el Claude que la ejecuta y el detalle técnico. Lupa es un plugin de Claude Code que se apoya en [floorplan](https://github.com/haydenschmitty/floorplan) para el mapa del código: tarjetas en rojo para lo grave, en ámbar para lo que hay que mirar y en azul para lo menor.
 
 ## Para los equipos: de la dirección al informe
 
@@ -91,7 +106,8 @@ El resto de este documento es para quien la usa: los equipos, el Claude que la e
    - qué dominios e IP públicas son vuestros, para mirarlos desde internet.
 3. **Manda el fichero** que te indica al final, `floorplan/lupa/lupa-<equipo>-<proyecto>-<fecha>.html`, a quien te pidió la auditoría, por Teams o correo. Es un solo fichero, sin nada externo.
 
-La segunda pasada es más barata: lo ya revisado se recuerda y solo se piden los endpoints y avisos nuevos.
+> [!TIP]
+> La segunda pasada es más barata: lo ya revisado se recuerda y solo se piden los endpoints y avisos nuevos.
 
 ## Para Claude: si te han pasado este repositorio
 
@@ -105,7 +121,7 @@ Un usuario te ha dado esta dirección para auditar la seguridad de su proyecto. 
 
 ## Qué mira
 
-| | Cómo |
+| Qué | Cómo |
 |---|---|
 | **Endpoints** | Todos: Express, Next, NestJS, FastAPI, Flask, Django, Spring, Go, Laravel, Symfony y PHP suelto. **Claude revisa cada uno** para decir si es público, si debería serlo y qué datos suelta |
 | **Secretos** | gitleaks, en el código y en **todo el historial de git** |
@@ -126,12 +142,46 @@ Un usuario te ha dado esta dirección para auditar la seguridad de su proyecto. 
 
 Claude además **criba los falsos positivos**: los quita del mapa, pero los deja listados en el panel para que se vea qué se ha descartado y por qué.
 
-## Instalar a mano
+## Qué sale de tu ordenador
+
+- **gitleaks y los chequeos propios:** nada.
+- **`doctor.mjs --instalar`:** descarga gitleaks, Trivy y zizmor de GitHub y Semgrep de PyPI, en versiones fijadas y comprobadas por hash.
+- **Semgrep:** descarga sus reglas de semgrep.dev, con las métricas apagadas. No sube código.
+- **Trivy:** descarga su base de datos de CVE y puede preguntar a Maven Central por dependencias de Java.
+- **npm**, solo en proyectos sin fichero de bloqueo: resuelve las versiones en una carpeta temporal (`--package-lock-only --ignore-scripts`). No instala ni ejecuta nada del proyecto.
+- **endoflife.date, CISA KEV y FIRST EPSS:** catálogos públicos, con caché de un día en `~/.cache/lupa`. Solo se envían números de CVE.
+- **Servidores:** la foto se toma en cada servidor y vuelve a tu equipo (con SSM, por la API de AWS de vuestra cuenta). De las IP públicas que se conectan a un servidor solo se guarda cuántas son.
+- **Vista desde internet:** conexiones y peticiones normales a los objetivos del proyecto, y una consulta a checkip.amazonaws.com para saber desde qué IP se mira.
+- **CI/CD:**
+  - lecturas a la API de GitHub o Bitbucket con la sesión del propio dev;
+  - zizmor consulta a GitHub las acciones que usan los workflows;
+  - los logs de las últimas ejecuciones se descargan a una carpeta temporal, se pasan por gitleaks y se borran. De cada secreto solo queda la regla, la ejecución y el paso.
+  - Con `--aws`, lecturas de IAM en la cuenta.
+- **La revisión de Claude:** el código que revisa va a Anthropic con la cuenta que uses. **Usa siempre la de la empresa.**
+
+Todo lo que genera Lupa se queda en `floorplan/`, que se ignora a sí misma en git.
+
+## Límites
+
+- **No sustituye a un pentest:** es una auditoría automática muy amplia, pero no prueba ataques reales.
+- **Es una foto de un momento:** conviene repetirla, por ejemplo cada trimestre o antes de un lanzamiento importante.
+- «Solo lectura» quiere decir que no cambia configuración ni datos: el auditor trabaja en una carpeta propia de `/run` (solo root, distinta en cada pasada) que borra al acabar, y no pregunta a `iptables` si eso cargaría módulos del kernel. En Amazon Linux, `dnf -C` puede rehacer ficheros de su propia caché.
+- La foto de las conexiones es de un momento: una conexión que solo ocurre de noche (una copia de seguridad, un cron) no sale. Varias pasadas a distintas horas la completan.
+- La vista desde internet ve lo que se ve desde la IP de quien la lanza: si esa IP está en una lista permitida, verá más que el resto del mundo. El informe dice desde qué IP se hizo.
+- La revisión de Bitbucket (Cloud y Server) y de GitHub Enterprise está hecha con su documentación y probada con respuestas simuladas; la primera pasada de un equipo que las use la confirmará.
+- Semgrep en Windows va con un solo proceso, porque en paralelo falla. En un proyecto grande tarda unos minutos.
+- En Windows con Defender, la regla ASR que bloquea ejecutables poco comunes para los lanzadores `.exe` que pip genera. Lupa llama a Semgrep a través de su Python para esquivarlo.
+- floorplan entiende peor C#/.NET: allí salen menos rutas y conexiones.
+
+## Detalle técnico
+
+<details>
+<summary><b>Instalar a mano</b></summary>
 
 Normalmente no hace falta: `/lupa` lo hace contigo. Lo necesario:
 
 1. Node 20 o superior y Claude Code, con la **cuenta de Leadtech**.
-2. Los escáneres. `node skills/lupa/scripts/doctor.mjs --instalar` descarga las versiones fijadas en `skills/lupa/herramientas.json` (gitleaks, Trivy, Semgrep) en `~/.cache/lupa/bin`, comprueba el SHA-256 de cada fichero y no toca el sistema. Semgrep necesita Python 3.10 o superior. También valen los del sistema:
+2. Los escáneres. `node skills/lupa/scripts/doctor.mjs --instalar` descarga las versiones fijadas en `skills/lupa/herramientas.json` (gitleaks, Trivy, Semgrep y zizmor) en `~/.cache/lupa/bin`, comprueba el SHA-256 de cada fichero y no toca el sistema. Semgrep necesita Python 3.10 o superior. También valen los del sistema:
 
    | | Windows | Mac | Linux |
    |---|---|---|---|
@@ -142,7 +192,10 @@ Normalmente no hace falta: `/lupa` lo hace contigo. Lo necesario:
    Si falta alguno, Lupa funciona igual, pero esa parte se queda sin mirar y el informe sale como «pasada incompleta».
 3. Para los servidores: la CLI de `aws` con acceso a SSM si están en AWS, o ssh. En cada servidor, Python 3.6 o superior (y root, para ver procesos y la config de SSH).
 
-## El informe
+</details>
+
+<details>
+<summary><b>El informe por dentro</b></summary>
 
 Cada pasada deja **`floorplan/lupa/informe.html`** y su copia para mandar, **`lupa-<equipo>-<proyecto>-<fecha>.html`**: un solo fichero, sin nada externo, que se abre con doble clic en cualquier navegador y se imprime a PDF. Tiene dos pestañas: **Informe** y **Mapa del código**, el mapa interactivo completo con cada aviso en su sitio (va comprimido dentro y el navegador lo abre al pulsar la pestaña). Trae:
 
@@ -162,26 +215,10 @@ Dentro del HTML van también **los datos en JSON** (`<script id="lupa-datos">`),
 
 `floorplan/lupa/informe.md` tiene un resumen en texto, para tickets.
 
-## Qué sale de tu ordenador
+</details>
 
-- **gitleaks y los chequeos propios:** nada.
-- **`doctor.mjs --instalar`:** descarga gitleaks y Trivy de GitHub y Semgrep de PyPI, en versiones fijadas y comprobadas por hash.
-- **Semgrep:** descarga sus reglas de semgrep.dev, con las métricas apagadas. No sube código.
-- **Trivy:** descarga su base de datos de CVE y puede preguntar a Maven Central por dependencias de Java.
-- **npm**, solo en proyectos sin fichero de bloqueo: resuelve las versiones en una carpeta temporal (`--package-lock-only --ignore-scripts`). No instala ni ejecuta nada del proyecto.
-- **endoflife.date, CISA KEV y FIRST EPSS:** catálogos públicos, con caché de un día en `~/.cache/lupa`. Solo se envían números de CVE.
-- **Servidores:** la foto se toma en cada servidor y vuelve a tu equipo (con SSM, por la API de AWS de vuestra cuenta). De las IP públicas que se conectan a un servidor solo se guarda cuántas son.
-- **Vista desde internet:** conexiones y peticiones normales a los objetivos del proyecto, y una consulta a checkip.amazonaws.com para saber desde qué IP se mira.
-- **CI/CD:**
-  - lecturas a la API de GitHub o Bitbucket con la sesión del propio dev;
-  - zizmor consulta a GitHub las acciones que usan los workflows;
-  - los logs de las últimas ejecuciones se descargan a una carpeta temporal, se pasan por gitleaks y se borran. De cada secreto solo queda la regla, la ejecución y el paso.
-  - Con `--aws`, lecturas de IAM en la cuenta.
-- **La revisión de Claude:** el código que revisa va a Anthropic con la cuenta que uses. **Usa siempre la de la empresa.**
-
-Todo lo que genera Lupa se queda en `floorplan/`, que se ignora a sí misma en git.
-
-## En Jenkins
+<details>
+<summary><b>En Jenkins</b></summary>
 
 Sin IA, los scripts funcionan solos y el mapa marca los endpoints como «sin revisar»:
 
@@ -194,18 +231,21 @@ Con IA: `claude -p "/lupa ."` usando una credencial de la empresa.
 
 Antes de esos dos scripts hace falta el mapa (`floorplan/graph.json`), que se crea con `/lupa` la primera vez.
 
-## Límites
+</details>
 
-- Es una auditoría automática muy amplia, pero **no sustituye un pentest**: no prueba ataques reales.
-- «Solo lectura» quiere decir que no cambia configuración ni datos: el auditor trabaja en una carpeta propia de `/run` (solo root, distinta en cada pasada) que borra al acabar, y no pregunta a `iptables` si eso cargaría módulos del kernel. En Amazon Linux, `dnf -C` puede rehacer ficheros de su propia caché.
-- La foto de las conexiones es de un momento: una conexión que solo ocurre de noche (una copia de seguridad, un cron) no sale. Varias pasadas a distintas horas la completan.
-- La vista desde internet ve lo que se ve desde la IP de quien la lanza: si esa IP está en una lista permitida, verá más que el resto del mundo. El informe dice desde qué IP se hizo.
-- Semgrep en Windows va con un solo proceso, porque en paralelo falla. En un proyecto grande tarda unos minutos.
-- En Windows con Defender, la regla ASR que bloquea ejecutables poco comunes para los lanzadores `.exe` que pip genera. Lupa llama a Semgrep a través de su Python para esquivarlo.
-- floorplan entiende peor C#/.NET: allí salen menos rutas y conexiones.
+<details>
+<summary><b>Cómo está hecho</b></summary>
 
-## Por dentro
-
-- `skills/lupa/`: el skill (`SKILL.md`), los scripts (`scan.mjs`, `merge.mjs`, `doctor.mjs`, `servidores-ssm.mjs`, `externo.mjs`), el auditor de servidores (`servidor/lupa-servidor.py`), las versiones fijadas de los escáneres (`herramientas.json`), las reglas propias de Semgrep (`rules/lupa.yml`) y la pieza del mapa (`assets/lupa-ui.js`).
+- `skills/lupa/`: el skill (`SKILL.md`), los scripts (`scan.mjs`, `merge.mjs`, `doctor.mjs`, `cicd.mjs`, `servidores-ssm.mjs`, `externo.mjs`), el auditor de servidores (`servidor/lupa-servidor.py`), las versiones fijadas de los escáneres (`herramientas.json`), las reglas propias de Semgrep (`rules/lupa.yml`) y la pieza del mapa (`assets/lupa-ui.js`).
 - `skills/floorplan/`: floorplan, copiado **fijo** en el commit `700645b` y sin modificar (licencia MIT, ver `FIJADO.md`). Lupa se engancha por fuera: mete sus avisos en el Health de floorplan y su pieza en el mapa.
 - Pruebas: `npm test`.
+
+</details>
+
+---
+
+<p align="center">
+  <img src=".github/media/lupa-icono.svg" alt="" width="56">
+  <br>
+  <sub>Lupa 0.4 · Eloy Bandín (RedSec) · el mapa del código es de <a href="https://github.com/haydenschmitty/floorplan">floorplan</a></sub>
+</p>
