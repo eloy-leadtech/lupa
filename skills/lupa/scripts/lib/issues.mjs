@@ -98,7 +98,7 @@ export function toIssues(findings, mapper) {
  * Un titular que diga el problema: la primera frase que habla de lo que falla («pero no comprueba…»,
  * «falta…», «cualquiera puede…»), sin el conector delante; si no hay, la primera. Recortado.
  */
-function firstSentence(s) {
+export function firstSentence(s) {
   const all = String(s || '').trim().split(/(?<=[.!?])\s+/);
   const BAD = /\b(pero|falta|faltan|no hay|no tiene|no comprueba|no limita|no valida|no pide|sin\s|se puede|se salta|cualquiera|permite|expone|deja|delata|filtra|suelta)\b/i;
   let t = (all.find((x) => BAD.test(x)) || all[0] || '').replace(/[.:;]$/, '');

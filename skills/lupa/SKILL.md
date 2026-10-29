@@ -1,6 +1,6 @@
 ---
 name: lupa
-description: Auditoría de seguridad de un proyecto entero, código e infraestructura, que el equipo genera y manda como un único informe. En el código busca secretos (también en el historial de git), fallos, librerías con CVE, Terraform, Docker, Kubernetes y Jenkins mal configurados, datos personales y todos los endpoints, que Claude revisa uno a uno. En la infraestructura revisa por dentro cada servidor del proyecto (parches, SSH, contenedores, puertos, secretos en disco, agentes), cómo se comunican entre ellos y qué se ve desde internet. Lo pinta sobre un mapa de floorplan y deja un informe HTML para mandar. Úsalo cuando pidan revisar la seguridad de un proyecto, de sus servidores o VPS, buscar puntos débiles, superficie de ataque, datos expuestos, o digan «lupa» o «auditoría».
+description: Auditoría de seguridad de un proyecto entero, código e infraestructura, que el equipo genera y manda como un único informe. En el código busca secretos (también en el historial de git), fallos, librerías con CVE, Terraform, Docker, Kubernetes y Jenkins mal configurados, datos personales y todos los endpoints, que Claude revisa uno a uno. En la infraestructura revisa por dentro cada servidor del proyecto (parches, SSH, contenedores, puertos, secretos en disco, agentes), cómo se comunican entre ellos y qué se ve desde internet. Propone además cambios de arquitectura (de seguridad y de mantenibilidad, por separado) con 2 o 3 alternativas comparadas. Lo pinta sobre un mapa de floorplan y deja un informe HTML para mandar. Úsalo cuando pidan revisar la seguridad de un proyecto, de sus servidores o VPS, buscar puntos débiles, superficie de ataque, datos expuestos, o digan «lupa» o «auditoría».
 argument-hint: "[ruta-del-proyecto]"
 allowed-tools: Bash(node ${CLAUDE_SKILL_DIR}/scripts/*), Bash(node ${CLAUDE_SKILL_DIR}/../floorplan/scripts/*)
 ---
@@ -19,7 +19,7 @@ Lupa junta cinco fuentes, las pinta en el mapa del proyecto y deja un informe pa
    - **La foto de la tecnología:** lenguajes, runtimes, frameworks, bases de datos, imágenes, Terraform, CI e IA, con versión y ciclo de vida (endoflife.date).
    - **Cada CVE cruzado con KEV** (CISA: se está explotando ya) **y EPSS** (probabilidad de ataque).
 3. **La infraestructura viva:** cada servidor del proyecto por dentro, cómo se hablan entre ellos y qué se ve desde internet.
-4. **Tu revisión, siempre:** cada endpoint (¿es público? ¿debería? ¿qué datos suelta?) y la criba de falsos positivos. Es la parte que ninguna regla hace bien, y no se salta.
+4. **Tu revisión, siempre:** cada endpoint (¿es público? ¿debería? ¿qué datos suelta?) y la criba de falsos positivos. Es la parte que ninguna regla hace bien, y no se salta. Después, **la arquitectura**: los pocos cambios de estructura que quitan problemas de raíz, con 2 o 3 alternativas comparadas, separando los de seguridad de los de mantenibilidad.
 5. **El mapa de floorplan y el informe:** todo acaba en su Health, con un mapa de calor y un botón «Lupa», y en un único HTML que el equipo manda a quien evalúa.
 
 Proyecto: el argumento si lo hay; si no, la carpeta actual. Puede ser un repo o una carpeta con varios.
@@ -142,7 +142,68 @@ Mira las **pistas** de cada endpoint y aplica la lista que toque. Cualquier punt
 
 **Nunca escribas el valor de un secreto** en los JSON ni en tus respuestas: como mucho el tipo y dónde está.
 
-## 5. Pintar
+## 5. Arquitectura (siempre)
+
+Los avisos dicen qué arreglar uno a uno; esta parte dice qué **cambio de estructura** quitaría muchos de golpe. Va después de la revisión, porque se apoya en ella.
+
+`node ${CLAUDE_SKILL_DIR}/scripts/arquitectura.mjs <raíz>`
+
+Si dice «al día», sáltate este paso: las propuestas de la pasada anterior siguen valiendo. Si no, lee `floorplan/lupa/arquitectura/pistas.md` y rellena `floorplan/lupa/arquitectura/propuestas.json`. Si el contexto va cargado, hazlo en un subagente: dale la raíz y la ruta de este SKILL para que lea esta sección.
+
+Las pistas son sitios donde mirar, no conclusiones: **abre el código antes de proponer nada.** Hay dos tipos, y el informe los enseña por separado:
+
+- **`seguridad`**: un cambio que quita de raíz un patrón de avisos o de la revisión de endpoints. Ejemplos:
+  - cada endpoint comprueba (o no) el permiso a su manera, o hay identificadores sin comprobar de quién son → **una sola capa de autorización** por la que pasa todo acceso a datos de un usuario;
+  - varias llamadas al modelo, cada una con sus límites (o sin ellos) → **una pasarela de IA** que pone login, cupo, `max_tokens`, limpieza de la salida y registro;
+  - datos delicados en claro en varios modelos → **cifrado de campos en la capa de datos**;
+  - secretos repartidos por el repo → **un gestor de secretos**;
+  - claves fijas en el despliegue → **OIDC**;
+  - muchas librerías con CVE y nadie que las actualice → **actualización automática** con revisión.
+- **`general`**: lo que hace el código difícil de cambiar y de probar, aunque no sea un fallo de seguridad:
+  - un concepto repartido en muchos módulos pequeños, que obliga a saltar de fichero en fichero;
+  - **módulos poco profundos**, con una interfaz casi tan compleja como lo que hacen;
+  - módulos que se importan el uno al otro (enredos);
+  - zonas que cambian mucho y no tienen pruebas, o que solo se pueden probar por dentro.
+
+  **La prueba del borrado:** si borras el módulo, ¿la complejidad se concentra en un sitio (señal de que el módulo sobra) o solo se reparte (señal de que sí hace algo)?
+
+Cada propuesta, con estos campos:
+
+- `id`: corto, en minúsculas y con guiones.
+- `tipo`: `seguridad` o `general`.
+- `titulo`: el cambio en una frase, con los nombres del dominio del proyecto («Una sola capa que decide quién ve cada expediente»).
+- `fuerza`:
+  - `fuerte`: lo pide el código y se ve en varios sitios;
+  - `merece-la-pena`;
+  - `especulativa`.
+- `problema`: qué pasa hoy y por qué duele, en dos o tres frases llanas.
+- `quitaDeRaiz`: para `seguridad`, los avisos o patrones que desaparecen (frases cortas).
+- `ficheros`: los principales implicados, con su ruta.
+- `antes` y `despues`: dos diagramas pequeños, `{ "cajas": [{ "id", "texto", "marca" }], "flechas": [["id-origen", "id-destino"]] }`.
+  - Como mucho 8 cajas, con nombres del dominio.
+  - `marca`: `problema` donde está el fallo, `nuevo` en lo que se crea, `externo` en lo que no es del proyecto.
+- `alternativas`: **2 o 3 de verdad distintas**, no tres variantes de lo mismo. Por ejemplo, un middleware central, las políticas en la base de datos o un servicio de permisos. Cada una lleva:
+  - `nombre` y `como` (qué se monta, en dos frases);
+  - `aFavor` y `enContra` (listas cortas);
+  - `esfuerzo`: `bajo`, `medio` o `alto`;
+  - `recomendada: true` en una sola.
+- `porQue`: por qué la recomendada, frente a las otras.
+- `primerPaso`: una instrucción concreta, lista para pegar en Claude Code.
+
+Y arriba, en el propio `propuestas.json`:
+
+- `resumen`: una frase sobre el estado de la arquitectura.
+- `porDondeEmpezar`: `{ "id", "motivo" }`.
+- `hecho: true` al acabar.
+
+Normas:
+
+- Pocas y buenas: de 0 a 4 de cada tipo. Si no hay nada que merezca la pena, deja la lista vacía y dilo en `resumen`: también es un resultado.
+- **No vuelvas a proponer lo decidido.** No repitas lo que dicen los ADR del repo ni las `rechazadas` de `propuestas.json`. Si una propuesta va contra un ADR, solo si el problema es serio, y dilo en `problema`.
+- Las propuestas que ya tenían `decision` (las decidió el equipo con `/lupa-arquitectura`) se dejan como están, salvo que el código ya no las justifique.
+- No cambies `huella` ni `rechazadas`. Nunca escribas secretos.
+
+## 6. Pintar
 
 `node ${CLAUDE_SKILL_DIR}/scripts/merge.mjs <raíz> --equipo "<equipo>"`
 
@@ -150,7 +211,7 @@ Mete todo en el mapa y escribe el informe: `floorplan/lupa/informe.html`, con el
 
 El informe lleva la **ficha de la pasada** (equipo, quién, cuándo, commit, herramientas) y la **cobertura**: si falta un escáner, quedan avisos sin cribar, endpoints sin revisar, servidores sin auditar o no se hizo la vista externa, sale como «pasada incompleta». Dentro van también los datos en JSON (id `lupa-datos`) con su huella SHA-256.
 
-## 6. Enseñar, informar y mandar
+## 7. Enseñar, informar y mandar
 
 Ábrele el mapa tú, sin pedirle nada: `node ${CLAUDE_SKILL_DIR}/../floorplan/scripts/open.mjs <raíz>` (con `--no-open` si tienes navegador integrado, y abre allí la URL). Arranca el servidor del mapa, así que su barra de preguntas funciona con su Claude Code; no le digas que ejecute `serve.mjs`.
 
@@ -159,6 +220,7 @@ Luego informa en 4 a 8 líneas, en castellano:
 - Lo grave primero, del código y de la infraestructura.
 - Lo que se ve desde internet y no debería.
 - Cómo se comunican los servidores, si hay algo raro: tráfico sin cifrar, IP que nadie sabe qué son.
+- La arquitectura: por qué propuesta empezar, en una línea. Si quieren decidir una con calma (alternativas, preguntas, ADR), que lancen `/lupa-arquitectura`.
 - Qué se ha quedado sin mirar: escáneres que faltaban, lotes sin revisar, servidores sin auditar.
 - **El fichero que hay que mandar**, con su ruta: `floorplan/lupa/lupa-<equipo>-<proyecto>-<fecha>.html`. Se manda tal cual (Teams, correo): es un solo fichero que se abre con doble clic, con el informe y el mapa del código dentro, sin servidor ni nada que instalar. Si la pasada salió incompleta, pregunta si quiere completarla antes de mandarlo.
 
@@ -178,4 +240,4 @@ Sin secretos.
 
 ## En Jenkins o sin IA
 
-`scan.mjs` y `merge.mjs` funcionan sin Claude: el mapa marca los endpoints como «sin revisar» y el informe sale como «pasada incompleta». Para tenerlo todo en CI: `claude -p "/lupa ."` con la cuenta de la empresa.
+`scan.mjs` y `merge.mjs` funcionan sin Claude: el mapa marca los endpoints como «sin revisar», el informe sale sin propuestas de arquitectura y como «pasada incompleta». Para tenerlo todo en CI: `claude -p "/lupa ."` con la cuenta de la empresa.

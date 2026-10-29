@@ -109,7 +109,6 @@ if (prevRun && only.length < Object.keys(TOOL_OF).length) {
 const s1 = Date.now();
 const [eol, kev] = await Promise.all([loadEol(log), loadKev(log)]);
 const epss = await loadEpss(findings.flatMap((f) => (f.cves || []).map((c) => c.id)), log);
-let kevCount = 0;
 for (const f of findings) {
   if (!f.cves || f.enriched) continue;
   f.enriched = true;
@@ -117,7 +116,6 @@ for (const f of findings) {
   f.epssMax = Math.max(0, ...f.cves.map((c) => c.epss || 0));
   const kevs = f.cves.filter((c) => c.kev);
   if (!kevs.length) continue;
-  kevCount++;
   f.kev = kevs.map((c) => c.id);
   f.severity = 'high';
   f.title = `Explotada ahora mismo (KEV): ${f.title}`;
@@ -142,6 +140,8 @@ inv.ficherosIA = iaFiles;
 writeJSON(path.join(outDir, 'tecnologia.json'), { generadoEn: new Date().toISOString(), ...inv });
 writeJSON(path.join(outDir, 'datos.json'), { generadoEn: new Date().toISOString(), ...dmap });
 console.log(`  datos     ${String(dmap.ficheros.length).padStart(5)} modelos/tablas con datos personales (${Object.keys(dmap.resumen).join(', ') || 'ninguno'}) · ${iaFiles.length} ficheros llaman a una IA`);
+// también las que ya venían marcadas de una pasada anterior (con --solo no se vuelven a cruzar)
+const kevCount = findings.filter((f) => f.kev?.length).length;
 console.log(`  tecnología ${String(inv.componentes.length).padStart(4)} piezas · ${techF.filter((f) => f.rule === 'sin-soporte').length} sin soporte · ${kevCount} librerías con CVE explotadas (KEV)  (${Math.round((Date.now() - s1) / 1000)} s)`);
 
 // «respuesta del modelo pintada sin limpiar» solo tiene sentido en un repo que usa IA

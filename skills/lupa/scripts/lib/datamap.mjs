@@ -9,7 +9,7 @@ export const PII = [
   { tipo: 'pasaporte', re: new RegExp('(^|_)(passport[a-z0-9]*|pasaporte[a-z0-9]*|travel_doc[a-z0-9]*)($|_)', 'i'), peso: 3 },
   { tipo: 'documento de identidad', re: new RegExp('(^|_)(dni|nie|nif|ssn|social_security[a-z0-9]*|national_id[a-z0-9]*|id_card|tax_id|cedula|curp|personal_id|document_number|doc_number)($|_)', 'i'), peso: 3 },
   { tipo: 'datos de pago', re: new RegExp('(^|_)(iban|card_number|cardnumber|credit_card[a-z0-9]*|cvv2?|cvc|pan|account_number|cuenta_bancaria|tarjeta[a-z0-9]*|security_code)($|_)', 'i'), peso: 3 },
-  { tipo: 'foto o biometría', re: new RegExp('(^|_)(photo[a-z0-9]*|foto[a-z0-9]*|selfie[a-z0-9]*|biometric[a-z0-9]*|fingerprint[a-z0-9]*|huella[a-z0-9]*|face_image|face_id|face_scan)($|_)', 'i'), peso: 3, especial: true },
+  { tipo: 'foto o biometría', re: new RegExp('(^|_)(photo[a-z0-9]*|foto[a-z0-9]*|selfie[a-z0-9]*|biometric[a-z0-9]*|fingerprint_(image|img|template|scan|photo)[a-z0-9]*|huellas?_(dactilar|digital)[a-z0-9]*|dactilar[a-z0-9]*|face_image|face_id|face_scan)($|_)', 'i'), peso: 3, especial: true },
   { tipo: 'salud', re: new RegExp('(^|_)(health[a-z0-9]*|salud|medical[a-z0-9]*|medic[ao]s?|diagnos[a-z0-9]*|disabilit[a-z0-9]*|discapacidad[a-z0-9]*|allerg[a-z0-9]*|alergi[a-z0-9]*)($|_)', 'i'), peso: 3, especial: true },
   { tipo: 'antecedentes penales', re: new RegExp('(^|_)(criminal[a-z0-9]*|arrest[a-z0-9]*|conviction[a-z0-9]*|penal|penales|antecedentes?[a-z0-9]*|deport[a-z0-9]*)($|_)', 'i'), peso: 3, especial: true },
   { tipo: 'origen, religión o ideología', re: new RegExp('(^|_)(ethnic[a-z0-9]*|race|religio[a-z0-9]*|political[a-z0-9]*|union_member[a-z0-9]*|sexual_orient[a-z0-9]*)($|_)', 'i'), peso: 3, especial: true },

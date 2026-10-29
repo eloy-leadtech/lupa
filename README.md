@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/plugin-Claude_Code-7C3AED?style=flat-square" alt="Plugin de Claude Code">
-  <img src="https://img.shields.io/badge/versi%C3%B3n-0.4-0EA5E9?style=flat-square" alt="Versión 0.4">
+  <img src="https://img.shields.io/badge/versi%C3%B3n-0.5-0EA5E9?style=flat-square" alt="Versión 0.5">
   <img src="https://img.shields.io/badge/servidores-solo_lectura-10B981?style=flat-square" alt="Servidores en solo lectura">
   <img src="https://img.shields.io/badge/esc%C3%A1neres-fijados_por_SHA--256-F59E0B?style=flat-square" alt="Escáneres fijados por SHA-256">
   <img src="https://img.shields.io/badge/CI%2FCD-GitHub_%C2%B7_Bitbucket-EC4899?style=flat-square" alt="CI/CD en GitHub y Bitbucket">
@@ -44,6 +44,7 @@
 | **Servidores** | Uno a uno por dentro, en solo lectura: parches, accesos, contenedores, secretos en disco y vigilancia. |
 | **Red** | Cómo se comunican los servidores entre ellos, visto desde los dos extremos de cada conexión. |
 | **Internet** | Qué se ve desde fuera y qué no debería verse. |
+| **Arquitectura** | Los pocos cambios de estructura que quitan problemas de raíz, cada uno con 2 o 3 alternativas comparadas. Los de seguridad (una sola capa de permisos, un freno de abuso, una pasarela para la IA…) van aparte de los de mantenibilidad (módulos enredados, zonas sin pruebas). |
 
 > [!NOTE]
 > **Estado:** versión 0.4, probada sobre la infraestructura real del equipo de seguridad: su repositorio de infraestructura como código, su CI/CD y sus servidores.
@@ -57,7 +58,7 @@
 
 Un único fichero HTML que se abre con doble clic, sin instalar nada. Tiene dos pestañas:
 
-- **Informe:** una **nota de la A a la F**, lo urgente por orden con su arreglo, el camino a producción etapa por etapa, dónde se pierde la seguridad y una ficha de quién lo hizo, cuándo y qué quedó sin mirar.
+- **Informe:** una **nota de la A a la F**, lo urgente por orden con su arreglo, el camino a producción etapa por etapa, dónde se pierde la seguridad y una ficha de quién lo hizo, cuándo y qué quedó sin mirar. Incluye **las propuestas de arquitectura**, con un dibujo del antes y el después y sus alternativas comparadas: las de seguridad junto a lo urgente y las de mantenibilidad al final, separadas. No cuentan para la nota.
 - **Mapa del código:** el mapa interactivo del proyecto, hecho con [floorplan](https://github.com/haydenschmitty/floorplan), con cada problema en su sitio: tarjetas en rojo para lo grave, en ámbar para lo que hay que mirar y en azul para lo menor.
 
 El equipo lo manda a seguridad por Teams o por correo.
@@ -108,6 +109,17 @@ El equipo lo manda a seguridad por Teams o por correo.
 
 > [!TIP]
 > La segunda pasada es más barata: lo ya revisado se recuerda y solo se piden los endpoints y avisos nuevos.
+
+### Decidir un cambio de arquitectura: `/lupa-arquitectura`
+
+Cuando el equipo quiera abordar una de las propuestas del informe (o pedir ideas sobre una parte concreta: `/lupa-arquitectura . los permisos`):
+
+1. Claude enseña las propuestas y el equipo elige una.
+2. Le hace las preguntas que importan, de una en una y con su respuesta recomendada: restricciones, qué queda dentro y fuera, cómo migrar sin romper, qué pruebas hacen falta.
+3. Diseña la pieza dos o tres veces en paralelo, con ideas distintas, y las compara.
+4. Deja la decisión escrita en un ADR (`docs/adr/`), si el equipo quiere. Lo rechazado con motivo no se vuelve a proponer en las pasadas siguientes.
+
+La idea de buscar módulos poco profundos y decidir con preguntas viene de [improve-codebase-architecture](https://github.com/mattpocock/skills) de Matt Pocock (MIT). Lupa la aplica sobre sus propios hallazgos y la separa en seguridad y mantenibilidad.
 
 ## Para Claude: si te han pasado este repositorio
 
@@ -210,6 +222,7 @@ Cada pasada deja **`floorplan/lupa/informe.html`** y su copia para mandar, **`lu
 - **Las librerías explotadas (KEV)**, diciendo si la app está expuesta.
 - **La tecnología**, con su ciclo de vida.
 - **El mapa de datos personales.**
+- **La arquitectura**, en dos secciones separadas: seguridad de raíz y mantenibilidad. Cada propuesta lleva su fuerza (fuerte, merece la pena, especulativa), el antes y el después dibujados, 2 o 3 alternativas con lo que tienen a favor y en contra y su esfuerzo, la recomendada y el primer paso. Si el equipo ya la decidió con `/lupa-arquitectura`, sale su decisión.
 
 Dentro del HTML van también **los datos en JSON** (`<script id="lupa-datos">`), para comparar equipos o cargarlos en otra herramienta, con su huella SHA-256 en el campo `huella`. Para comprobarla: quita ese campo, vuelve a serializar el resto con `JSON.stringify` y calcula su SHA-256.
 
@@ -236,7 +249,8 @@ Antes de esos dos scripts hace falta el mapa (`floorplan/graph.json`), que se cr
 <details>
 <summary><b>Cómo está hecho</b></summary>
 
-- `skills/lupa/`: el skill (`SKILL.md`), los scripts (`scan.mjs`, `merge.mjs`, `doctor.mjs`, `cicd.mjs`, `servidores-ssm.mjs`, `externo.mjs`), el auditor de servidores (`servidor/lupa-servidor.py`), las versiones fijadas de los escáneres (`herramientas.json`), las reglas propias de Semgrep (`rules/lupa.yml`) y la pieza del mapa (`assets/lupa-ui.js`).
+- `skills/lupa-arquitectura/`: el comando para decidir un cambio de arquitectura con el equipo.
+- `skills/lupa/`: el skill (`SKILL.md`), los scripts (`scan.mjs`, `merge.mjs`, `doctor.mjs`, `cicd.mjs`, `servidores-ssm.mjs`, `externo.mjs`, `arquitectura.mjs`), el auditor de servidores (`servidor/lupa-servidor.py`), las versiones fijadas de los escáneres (`herramientas.json`), las reglas propias de Semgrep (`rules/lupa.yml`) y la pieza del mapa (`assets/lupa-ui.js`).
 - `skills/floorplan/`: floorplan, copiado **fijo** en el commit `700645b` y sin modificar (licencia MIT, ver `FIJADO.md`). Lupa se engancha por fuera: mete sus avisos en el Health de floorplan y su pieza en el mapa.
 - Pruebas: `npm test`.
 
@@ -247,5 +261,5 @@ Antes de esos dos scripts hace falta el mapa (`floorplan/graph.json`), que se cr
 <p align="center">
   <img src=".github/media/lupa-icono.svg" alt="" width="56">
   <br>
-  <sub>Lupa 0.4 · Eloy Bandín (RedSec) · el mapa del código es de <a href="https://github.com/haydenschmitty/floorplan">floorplan</a></sub>
+  <sub>Lupa 0.5 · Eloy Bandín (RedSec) · el mapa del código es de <a href="https://github.com/haydenschmitty/floorplan">floorplan</a></sub>
 </p>

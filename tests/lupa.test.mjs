@@ -126,6 +126,16 @@ test('mapa de datos personales: pasaportes, salud y el CVV prohibido', () => {
   assert.deepEqual(aiFiles(d, ['chat/api/chat.ts', 'chat/agent/agent.py', 'visados/db.js']), ['chat/api/chat.ts', 'chat/agent/agent.py']);
 });
 
+test('mapa de datos personales: la «fingerprint» de un hallazgo es un hash, no una huella dactilar', () => {
+  const d = tmp();
+  fs.mkdirSync(path.join(d, 'app', 'schemas'), { recursive: true });
+  fs.writeFileSync(path.join(d, 'app', 'schemas', 'findings.py'), 'from pydantic import BaseModel\nclass Finding(BaseModel):\n    rule_id: str\n    fingerprint: str\n');
+  fs.writeFileSync(path.join(d, 'app', 'schemas', 'empleado.py'), 'from pydantic import BaseModel\nclass Empleado(BaseModel):\n    nombre: str\n    fingerprint_template: bytes\n');
+  const m = dataMap(d, ['app/schemas/findings.py', 'app/schemas/empleado.py']);
+  assert.deepEqual(m.ficheros.map((f) => f.fichero), ['app/schemas/empleado.py']);
+  assert.ok(m.ficheros[0].tipos.includes('foto o biometría'));
+});
+
 test('reglas propias de IA y web: cada una pilla su fallo', { skip: !findTool('semgrep') && 'Semgrep no está instalado' }, () => {
   const d = tmp();
   writeApps(d);

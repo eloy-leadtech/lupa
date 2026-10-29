@@ -29,7 +29,7 @@ function pendingReview(dir) {
   return { endpoints: e, hallazgos: h };
 }
 
-export function deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, cicd = null, equipo }) {
+export function deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, cicd = null, arquitectura = null, equipo }) {
   const git = (dir, args) => run('git', ['-C', dir, ...args], { timeout: 30_000 }).stdout.trim();
   const repos = (graph.meta?.repos || []).map((r) => {
     const dir = path.join(root, r.path || '.');
@@ -51,6 +51,7 @@ export function deliveryInfo({ root, graph, found, answers, endpoints, discarded
     ...(cicd?.plataformas || []).filter((p) => p.error).map((p) => `${p.repo}: plataforma sin revisar (${p.error})`),
     ...((cicd?.plataformas || []).some((p) => (p.huecos || []).length) ? [`${(cicd.plataformas || []).reduce((a, p) => a + (p.huecos || []).length, 0)} cosas de la plataforma sin ver por permisos`] : []),
     ...repos.filter((r) => r.sinCommitear).map((r) => `${r.nombre}: ${r.sinCommitear} cambios sin commitear`),
+    ...(!arquitectura?.hecho ? ['sin propuestas de arquitectura'] : []),
   ];
   const quien = git(root, ['config', 'user.name']) || os.userInfo().username;
   return {
@@ -60,6 +61,7 @@ export function deliveryInfo({ root, graph, found, answers, endpoints, discarded
     revision: { endpoints: reviewed, endpointsTotal: endpoints.length, cribados: answers.findings.size, pendientes: pend.hallazgos, descartados: discarded.length },
     cicd: cicd ? { sistemas: (cicd.sistemas || []).map((s) => s.nombre), plataformas: (cicd.plataformas || []).map((p) => `${p.plataforma}:${p.repo}`), revisadoPorFuera: !!cicd.revisadoPorFuera } : null,
     servidores: { revisados: infra?.servidores?.length || 0, sinAuditar: (infra?.sinAuditar || []).map((x) => x.nombre), externo: infra?.externo ? { desde: infra.externo.desde, objetivos: infra.externo.objetivos.length } : null },
+    arquitectura: arquitectura?.hecho ? { seguridad: arquitectura.propuestas.filter((p) => p.tipo === 'seguridad').length, general: arquitectura.propuestas.filter((p) => p.tipo === 'general').length } : null,
     huecos, completo: !huecos.length,
   };
 }
@@ -72,6 +74,8 @@ export function deliveryData({ entrega, graph, score }) {
     resumen: { graves: issues.filter((i) => i.severity === 'high').length, aMirar: issues.filter((i) => i.severity === 'medium').length, menores: issues.filter((i) => i.severity === 'low').length, porCategoria: graph.lupa?.categorias || {} },
     avisos: issues.map((i) => ({ id: i.id, categoria: i.lupa?.cat, gravedad: i.severity, titulo: i.title, detalle: String(i.detail || '').slice(0, 600), donde: (i.locations || []).slice(0, 5) })),
     descartados: graph.lupa?.descartados || [],
+    // las propuestas de arquitectura, para seguir entre pasadas qué se decidió en cada equipo
+    arquitectura: (graph.lupa?.arquitectura?.propuestas || []).map(({ ficheros, ...p }) => p),
   };
   const body = JSON.stringify(datos);
   return { ...datos, huella: crypto.createHash('sha256').update(body).digest('hex') };
@@ -90,6 +94,7 @@ ${row('Lo ejecutó', `${esc(entrega.quien)}${entrega.email ? ` <span class="sub"
 ${row('Código', entrega.repos.map((r) => `${esc(r.nombre)} · ${esc(r.rama)} @ <code>${esc(r.commit)}</code>${r.remoto ? ` <span class="sub">${esc(r.remoto)}</span>` : ''}${r.sinCommitear ? ` ${tag(SEV.medium, `${r.sinCommitear} cambios sin commitear`)}` : ''}`).join('<br>') || '—')}
 ${row('Herramientas', `${esc(Object.entries(entrega.herramientas).map(([n, v]) => `${n} ${String(v).split(' ').pop()}`).join(' · ') || '—')}${entrega.faltan.length ? ` ${tag(SEV.medium, `faltan: ${entrega.faltan.join(', ')}`)}` : ''} <span class="sub">· Lupa ${esc(entrega.lupa)} · floorplan ${esc(entrega.floorplan)}</span>`)}
 ${row('Revisión de la IA', `${fmt(R.endpoints)} de ${fmt(R.endpointsTotal)} endpoints · ${fmt(R.cribados)} grupos de avisos cribados${R.pendientes ? ` · ${tag(SEV.medium, `${R.pendientes} sin cribar`)}` : ''} · ${fmt(R.descartados)} falsos positivos quitados`)}
+${row('Arquitectura', entrega.arquitectura ? `${fmt(entrega.arquitectura.seguridad)} propuestas de seguridad · ${fmt(entrega.arquitectura.general)} de mantenibilidad` : tag(SEV.medium, 'no hecha'))}
 ${row('Servidores y red', S.revisados ? `${fmt(S.revisados)} servidores por dentro${S.sinAuditar.length ? ` · ${tag(SEV.medium, `${S.sinAuditar.length} sin auditar`)} <span class="sub">${esc(S.sinAuditar.join(', '))}</span>` : ''} · vista desde internet: ${S.externo ? `${fmt(S.externo.objetivos)} objetivos desde ${esc(S.externo.desde || '—')}` : tag(SEV.medium, 'no hecha')}` : tag(SEV.medium, 'no se revisaron servidores'))}
 ${row('Cobertura', entrega.completo ? tag(STATE['al-dia'], 'Completa') : entrega.huecos.map((h) => tag(SEV.medium, h)).join(' '))}
 ${entrega.datos ? row('Huella de los datos', `<code>${esc(entrega.datos.huella)}</code> <span class="sub">SHA-256 de los datos JSON que van dentro de este fichero (id «lupa-datos»)</span>`) : ''}

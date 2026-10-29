@@ -11,10 +11,11 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { readJSON, writeJSON, SEV_RANK, plural } from './lib/util.mjs';
 import { toIssues, endpointFindings, makeMapper, findingId, CATS, OUTSIDE_NODE, INFRA_NODE, INFRA_FILE } from './lib/issues.mjs';
-import { loadAnswers, endpointKey, triageKey } from './lib/review.mjs';
+import { loadAnswers, reviewOf, triageKey } from './lib/review.mjs';
 import { buildReport } from './lib/report.mjs';
 import { deliveryInfo } from './lib/entrega.mjs';
 import { stageSummary } from './lib/cicd.mjs';
+import { loadProposals, archSummary } from './lib/arquitectura.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.join(HERE, '..', 'assets', 'lupa-ui.js');
@@ -37,6 +38,8 @@ const equipoArg = argv.includes('--equipo') ? argv[argv.indexOf('--equipo') + 1]
 const ficha = { ...readJSON(path.join(lupaDir, 'ficha.json'), {}), ...(equipoArg ? { equipo: equipoArg } : {}) };
 if (equipoArg) writeJSON(path.join(lupaDir, 'ficha.json'), ficha);
 const answers = loadAnswers(path.join(lupaDir, 'revision'));
+// las propuestas de arquitectura que hizo Claude (arquitectura.mjs y la sección «Arquitectura» del SKILL)
+const arch = loadProposals(root);
 
 // Un mapa ya pintado por Lupa trae sus propios avisos: se quitan para no duplicarlos.
 const fpIssues = (graph.health?.issues || []).filter((i) => !String(i.id).startsWith('lupa:'));
@@ -72,8 +75,7 @@ for (const x of answers.extra) {
 
 // endpoints con la respuesta de la IA
 // una revisión hecha sobre otro código (huella distinta) ya no vale: el endpoint sale como «sin revisar»
-const reviewOf = (e) => { const a = answers.endpoints.get(endpointKey(e)); return a && (!a.huella || !e.huella || a.huella === e.huella) ? a : null; };
-const endpoints = (surface.endpoints || []).map((e) => ({ ...e, shown: e.realPath || e.path, revision: reviewOf(e) }));
+const endpoints = (surface.endpoints || []).map((e) => ({ ...e, shown: e.realPath || e.path, revision: reviewOf(answers, e) }));
 findings.push(...endpointFindings(endpoints));
 
 // floorplan ya avisa de secretos; si Lupa tiene el mismo fichero, se queda el de Lupa (trae el historial)
@@ -128,6 +130,7 @@ graph.lupa = {
   } : null,
   datos: datos ? { resumen: Object.fromEntries(Object.entries(datos.resumen).map(([k, v]) => [k, { campos: v.campos, ficheros: v.ficheros.length, especial: !!v.especial }])),
     ficheros: datos.ficheros.map((d) => ({ fichero: d.fichero, tipos: d.tipos, especial: d.especial, cifrado: d.cifrado })) } : null,
+  arquitectura: archSummary(arch),
 };
 
 // ---------------------------------------------------------------- escribir
@@ -152,7 +155,7 @@ fs.writeFileSync(path.join(fp, 'index.html'), html);
 // el informe para quien evalúa: un solo HTML, sin nada externo, con la ficha de la pasada y los datos dentro
 // el camino a producción, con lo que queda después de la criba (los falsos positivos ya no cuentan)
 const cicd = cicdRaw ? { ...cicdRaw, etapas: stageSummary(findings) } : null;
-const entrega = deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, cicd, equipo: ficha.equipo });
+const entrega = deliveryInfo({ root, graph, found, answers, endpoints, discarded, infra, cicd, arquitectura: arch, equipo: ficha.equipo });
 // El mapa del código viaja dentro del informe, comprimido: quien lo recibe no tiene floorplan/ ni Claude Code.
 // La copia va sin la ruta de este equipo (sin ella tampoco salen los enlaces «abrir en el editor») y sin la
 // barra de preguntas, que necesita Claude Code en local y en un fichero entregado solo pediría ejecutar comandos.
@@ -164,7 +167,7 @@ mapCopy = mapCopy.replace(/<\/head>/, '<style>/* Lupa: copia entregada */#ask{di
 // ni los avisos de floorplan que piden «Run the skill again»: quien lo recibe no tiene nada que ejecutar
 mapCopy = mapCopy.replace(/<\/body>(?![\s\S]*<\/body>)/, '<script>new MutationObserver(()=>document.querySelectorAll(".callout").forEach((c)=>{if(/Run the skill/.test(c.textContent))c.remove()})).observe(document.documentElement,{childList:true,subtree:true})</script></body>');
 const mapa = zlib.gzipSync(Buffer.from(mapCopy, 'utf8'), { level: 9 }).toString('base64');
-const report = buildReport({ graph, tech, datos, infra, cicd, entrega, mapa });
+const report = buildReport({ graph, tech, datos, infra, cicd, entrega, mapa, arch });
 fs.writeFileSync(path.join(lupaDir, 'informe.html'), report);
 // la copia para mandar lleva el proyecto y la fecha en el nombre, para que no se pisen en el correo
 const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
@@ -179,12 +182,18 @@ const md = [`# Lupa · ${graph.project?.name || path.basename(root)}`, '', `Gene
   `Endpoints: ${endpoints.length} · revisados por la IA: ${reviewed} · descartados como falsos positivos: ${discarded.length}.`, '',
   ...(infra ? [`Servidores revisados por dentro: ${infra.servidores?.length || 0} · conexiones vistas: ${infra.red?.edges?.length || 0} · puertas a internet: ${infra.expuesto?.length || 0} · vista desde internet: ${infra.externo ? `desde ${infra.externo.desde}` : 'no hecha'}.`, ''] : []),
   `Cobertura: ${entrega.completo ? 'completa' : entrega.huecos.join(' · ')}.`, '',
-  '## Lo grave', '', ...issues.filter((i) => i.severity === 'high').slice(0, 40).map((i) => { const l = i.locations?.[0]; return `- **${i.title}**${l ? ` — \`${INFRA_FILE.test(l.file) ? l.file : `${l.file}:${l.line}`}\`` : ''}`; }), ''];
+  '## Lo grave', '', ...issues.filter((i) => i.severity === 'high').slice(0, 40).map((i) => { const l = i.locations?.[0]; return `- **${i.title}**${l ? ` — \`${INFRA_FILE.test(l.file) ? l.file : `${l.file}:${l.line}`}\`` : ''}`; }), '',
+  ...(arch?.hecho ? [['seguridad', 'Arquitectura: seguridad de raíz'], ['general', 'Arquitectura: mantenibilidad']].flatMap(([t, h]) => {
+    const list = arch.propuestas.filter((p) => p.tipo === t);
+    return list.length ? [`## ${h}`, '', ...list.map((p) => `- **${p.titulo}** (${p.fuerza}) — recomendada: ${p.alternativas.find((a) => a.recomendada)?.nombre || '—'}${p.decision ? ` · ${p.decision.estado}` : ''}`), ''] : [];
+  }) : [])];
 fs.writeFileSync(path.join(lupaDir, 'informe.md'), md.join('\n'));
 
 console.log(`LUPA  ${plural(lupaIssues.length, 'aviso')} en el mapa (${count('high', lupaIssues)} graves · ${count('medium', lupaIssues)} a mirar · ${count('low', lupaIssues)} menores) + ${finalFp.length} de floorplan`);
 console.log(`      endpoints revisados por la IA: ${reviewed}/${endpoints.length} · descartados: ${discarded.length}${mapper.outside.size ? ` · ${mapper.outside.size} ficheros colgados en «Fuera del mapa»` : ''}`);
 if (reviewed < endpoints.length) console.log(`      ⚠ faltan ${endpoints.length - reviewed} endpoints por revisar: el mapa los enseña como «sin revisar».`);
 console.log(`✓ mapa actualizado: ${path.relative(root, path.join(fp, 'index.html'))} · informe: floorplan/lupa/informe.html (y .md)`);
+if (arch?.hecho) console.log(`      arquitectura: ${arch.propuestas.filter((p) => p.tipo === 'seguridad').length} de seguridad · ${arch.propuestas.filter((p) => p.tipo === 'general').length} de mantenibilidad`);
+for (const a of arch?.avisos || []) console.log(`      ⚠ arquitectura: ${a}`);
 if (!entrega.completo) console.log(`      ⚠ pasada incompleta: ${entrega.huecos.join(' · ')}`);
 console.log(`➜ Para mandar: floorplan/lupa/${sendName} (un solo fichero, sin nada externo)`);
