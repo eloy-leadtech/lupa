@@ -103,6 +103,11 @@
   const epNote = (e) => `${e.metodo} ${e.ruta}${e.motivo ? ` — ${e.motivo}` : ''}`;
   const showEp = (title, list) => board(title, `${list.length} endpoints`, list.map((e) => [e.ref, epNote(e)]));
 
+  // propuestas de arquitectura: las de seguridad y las de mantenibilidad, cada una en su bloque
+  const A = L.arquitectura;
+  const ARQ = [['seguridad', 'Arquitectura · seguridad de raíz', COLOR.high], ['general', 'Arquitectura · mantenibilidad', '#9aa0a6']];
+  const showArq = (p) => board(p.titulo, `${p.tipo === 'seguridad' ? 'Seguridad de raíz' : 'Mantenibilidad'} · recomendada: ${p.recomendada || '—'}`, (p.ficheros || []).map((f) => ['f:' + f, p.titulo]));
+
   // ---------------------------------------------------------------- panel
   const total = (s) => lupaIssues.filter((i) => i.severity === s).length;
   function panelHtml() {
@@ -127,10 +132,13 @@
         <a class="row" data-lp-ep="pub"><span class="dot" style="background:${COLOR.medium}"></span><span class="rt"><div class="rn">Públicos</div><div class="rd">${pub.length} sin login (bien o mal, según el motivo)</div></span><span class="rc">${SC.iconI('right')}</span></a>
         ${pending.length ? `<a class="row" data-lp-ep="pend"><span class="dot" style="background:var(--text-3)"></span><span class="rt"><div class="rn">Sin revisar por la IA</div><div class="rd">${pending.length} pendientes</div></span><span class="rc">${SC.iconI('right')}</span></a>` : ''}
       </div></div>
+      ${ARQ.map(([t, name, color]) => { const list = (A?.propuestas || []).map((p, i) => [p, i]).filter(([p]) => p.tipo === t); return list.length ? `<div class="sec"><h3>${name} <span class="c">${list.length}</span></h3><div class="list">${list.map(([p, i]) => `<a class="row" data-lp-arq="${i}"><span class="dot" style="background:${color}"></span><span class="rt"><div class="rn">${h(p.titulo)}</div><div class="rd">Recomendada: ${h(p.recomendada || '—')}${p.decision ? ` · ${h(p.decision)}` : ''}</div></span><span class="rc">${SC.iconI('right')}</span></a>`).join('')}</div></div>` : ''; }).join('')}
+      ${A?.propuestas?.length ? '<div class="sec"><div class="lp-small">Las alternativas de cada propuesta, comparadas, están en el informe. Para decidir una con el equipo: /lupa-arquitectura.</div></div>' : ''}
       <div class="sec"><div class="lp-small">Herramientas: ${Object.entries(L.herramientas || {}).map(([n, v]) => `${h(n)} ${h(String(v).split(' ').pop())}`).join(' · ')}<br>Informe para tickets: floorplan/lupa/informe.md</div></div>`;
   }
   function bindPanel(el) {
     el.querySelectorAll('[data-lp-cat]').forEach((x) => x.addEventListener('click', (ev) => { ev.preventDefault(); showCat(x.dataset.lpCat); }));
+    el.querySelectorAll('[data-lp-arq]').forEach((x) => x.addEventListener('click', (ev) => { ev.preventDefault(); showArq(A.propuestas[+x.dataset.lpArq]); }));
     el.querySelectorAll('[data-lp-ep]').forEach((x) => x.addEventListener('click', (ev) => {
       ev.preventDefault();
       const k = x.dataset.lpEp;

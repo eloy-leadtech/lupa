@@ -9,6 +9,7 @@ import { deliverySection, deliveryData } from './entrega.mjs';
 import { INFRA_FILE } from './issues.mjs';
 import { MAP_CSS, mapNav, mapPanel } from './report-mapa.mjs';
 import { cicdSection, CICD_CSS } from './report-cicd.mjs';
+import { archSection, ARCH_CSS } from './arquitectura.mjs';
 
 const RANK = { alta: 0, media: 1, baja: 2 };
 
@@ -50,7 +51,7 @@ export function score({ kevExpuestas, kevOtras, endpointsGraves, graves, aMirar,
   return { n, letra, quita };
 }
 
-export function buildReport({ graph, tech, datos, infra = null, cicd = null, entrega = null, mapa = null, generado = new Date() }) {
+export function buildReport({ graph, tech, datos, infra = null, cicd = null, entrega = null, mapa = null, arch = null, generado = new Date() }) {
   const L = graph.lupa || {};
   const issues = graph.health?.issues || [];
   const lupaIssues = issues.filter((i) => String(i.id).startsWith('lupa:'));
@@ -216,6 +217,7 @@ footer{color:var(--muted);font-size:12px;margin-top:22px}
 @media print{:root{color-scheme:light}body{background:#fff}section{break-inside:avoid;border-color:#ddd}#tip,details summary{display:none}details>*{display:block}}
 ${mapa ? MAP_CSS : ''}
 ${cicd ? CICD_CSS : ''}
+${ARCH_CSS}
 </style></head><body>${mapNav(mapa)}<main>
 <header><div class="k">Lupa · informe de seguridad</div><h1>${esc(graph.project?.name || 'Proyecto')}</h1>
 <div class="meta">${esc(generado.toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' }))} &nbsp;|&nbsp; ${repoLine || '—'}</div>${deliverySection(ent,'cabecera')}</header>
@@ -237,6 +239,8 @@ ${mapa ? '<p><button type="button" class="link" data-abre-mapa>Abrir el mapa int
 
 <section><h2>Lo más importante</h2><p class="lead">Por orden: lo que ya se está explotando en apps expuestas, los endpoints abiertos que no deberían, los secretos o datos al aire y, si no hay nada grave, lo que hay que mirar.</p>
 <ul class="urg">${urgent.map((u) => `<li>${pill(SEV[u.sev])}<div>${esc(u.t)}<div class="w">${esc(u.a)} · ${esc(u.w)}</div></div></li>`).join('') || '<li><span></span><div>Nada importante pendiente.</div></li>'}</ul></section>
+
+${archSection(arch, 'seguridad')}
 
 <section><h2>Por tipo de problema</h2><p class="lead">Número de avisos de cada tipo, partidos por gravedad.</p>${bars}
 <div class="legend"><span><i style="background:var(--crit)"></i>▲ Graves</span><span><i style="background:var(--serious)"></i>◆ A mirar</span><span><i style="background:var(--warn)"></i>● Menores</span></div>
@@ -260,6 +264,7 @@ ${techGroups}</section>
 <section><h2>Datos personales</h2><p class="lead">Modelos, tablas y migraciones que guardan datos de personas. Salud, antecedentes, biometría u origen son categorías especiales del RGPD (art. 9).</p>
 <table class="t"><thead><tr><th>Dónde</th><th>Qué guarda</th><th>Cifrado</th></tr></thead><tbody>${(datos?.ficheros || []).sort((a, b) => +b.especial - +a.especial).slice(0, 40).map((d) => `<tr><td><span class="w">${esc(d.fichero)}</span>${d.especial ? `<div>${pill(SEV.medium).replace('A mirar', 'Categoría especial')}</div>` : ''}</td><td>${chips(d.tipos)}<div class="sub">${esc(d.campos.map((c) => c.campo).slice(0, 12).join(', '))}</div></td><td>${d.cifrado ? pill(STATE['al-dia']).replace('Con soporte', 'Hay pistas') : pill(STATE.desconocido).replace('Sin datos', 'No consta')}</td></tr>`).join('') || '<tr><td colspan="3">No se han encontrado modelos con datos personales.</td></tr>'}</tbody></table></section>
 
+${archSection(arch, 'general')}
 <section><h2>Cómo se ha hecho</h2>${deliverySection(ent,'detalle')}
 <p class="lead">Herramientas: ${esc(Object.entries(L.herramientas || {}).map(([n, v]) => `${n} ${String(v).split(' ').pop()}`).join(' · ') || '—')}. Revisión de la IA: ${fmt(R.endpoints || 0)} de ${fmt(R.endpointsTotal || 0)} endpoints y ${fmt(R.hallazgosCribados || 0)} grupos de avisos; ${fmt(R.descartados || 0)} falsos positivos quitados.</p>
 ${(L.avisos || []).length ? `<h3>Lo que no se pudo mirar entero</h3><ul>${L.avisos.map((a) => `<li class="sub">${esc(a)}</li>`).join('')}</ul>` : ''}

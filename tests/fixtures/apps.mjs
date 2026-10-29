@@ -1,5 +1,5 @@
 // Dos mini apps de ensayo, generadas al vuelo para que ningún escáner salte con el propio repo de Lupa:
-// un chat con IA (como Lorca) y una gestión de visados con datos personales. Cada fichero
+// un chat con IA y una gestión de visados con datos personales. Cada fichero
 // lleva a propósito los fallos que Lupa debe encontrar.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,7 +19,7 @@ export async function POST(req) {
   console.log('chat', req.body);
   const r = await anthropic.messages.create({
     model: 'claude', max_tokens: 1024,
-    messages: [{ role: 'system', content: \`Eres Lorca, el asistente. El cliente se llama \${req.body.name}\` }, { role: 'user', content: body.text }],
+    messages: [{ role: 'system', content: \`Eres el asistente. El cliente se llama \${req.body.name}\` }, { role: 'user', content: body.text }],
   });
   return Response.json(r);
 }

@@ -1,7 +1,7 @@
 {
   "name": "lupa",
-  "version": "0.4.0",
-  "description": "Auditoría de seguridad de todo un proyecto, código e infraestructura: secretos (con historial de git), fallos de código, librerías con CVE, Terraform/Docker/Kubernetes/Jenkins, datos personales y endpoints revisados por Claude; cada servidor por dentro, cómo se comunican y qué se ve desde internet. Deja un único informe HTML para mandar al equipo de seguridad.",
+  "version": "0.5.0",
+  "description": "Auditoría de seguridad de todo un proyecto, código e infraestructura: secretos (con historial de git), fallos de código, librerías con CVE, Terraform/Docker/Kubernetes/Jenkins, datos personales y endpoints revisados por Claude; cada servidor por dentro, cómo se comunican y qué se ve desde internet. Propone cambios de arquitectura (seguridad y mantenibilidad) con alternativas comparadas y los decide con el equipo (/lupa-arquitectura). Deja un único informe HTML para mandar al equipo de seguridad.",
   "author": {
     "name": "Eloy Bandín (RedSec)"
   },
@@ -22,10 +22,12 @@
     "ci",
     "cd",
     "github-actions",
-    "bitbucket"
+    "bitbucket",
+    "arquitectura"
   ],
   "skills": [
     "./skills/lupa",
+    "./skills/lupa-arquitectura",
     "./skills/floorplan"
   ]
 }

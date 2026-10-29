@@ -6,6 +6,8 @@ import path from 'node:path';
 import { readJSON, writeJSON, snippet } from './util.mjs';
 
 export const endpointKey = (e) => `${e.method} ${e.path} @ ${e.file}`;
+/** La respuesta de la IA para un endpoint, si sigue valiendo: hecha sobre el mismo código (misma huella). */
+export const reviewOf = (answers, e) => { const a = answers.endpoints.get(endpointKey(e)); return a && (!a.huella || !e.huella || a.huella === e.huella) ? a : null; };
 const LOTE_ENDPOINTS = 25;
 const LOTE_HALLAZGOS = 40;
 
